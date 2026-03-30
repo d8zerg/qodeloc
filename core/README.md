@@ -28,7 +28,7 @@ Phase 1.2 splits the core into static libraries:
 - `libstorage`
 - `libapi`
 
-The parser library is now the first live module: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols from a source file. The remaining libraries still expose no-op public classes under `include/qodeloc/core/` and are linked into `qodeloc-core`. The internal contract is documented in [`docs/api-internal.md`](../../docs/api-internal.md).
+The parser library is now the first live module: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. The remaining libraries still expose no-op public classes under `include/qodeloc/core/` and are linked into `qodeloc-core`. The internal contract is documented in [`docs/api-internal.md`](../../docs/api-internal.md).
 
 ## Presets
 

@@ -142,6 +142,25 @@ using TreeHandle = std::unique_ptr<TSTree, TreeDeleter>;
   return normalized;
 }
 
+[[nodiscard]] std::string normalize_include_path(std::string_view text) {
+  text = trim_view(text);
+  if (text.size() >= 2) {
+    const bool quoted = text.front() == '"' && text.back() == '"';
+    const bool angled = text.front() == '<' && text.back() == '>';
+    if (quoted || angled) {
+      text = text.substr(1, text.size() - 2);
+    }
+  }
+
+  return std::string{text};
+}
+
+template <typename T> void append_unique(std::vector<T>& values, T value) {
+  if (std::find(values.begin(), values.end(), value) == values.end()) {
+    values.push_back(std::move(value));
+  }
+}
+
 [[nodiscard]] std::string join_scopes(const std::vector<std::string>& scopes) {
   std::string joined;
   for (const auto& scope : scopes) {
@@ -174,6 +193,28 @@ using TreeHandle = std::unique_ptr<TSTree, TreeDeleter>;
   }
 
   return scope_prefix + normalized_leaf;
+}
+
+[[nodiscard]] std::string qualify_dependency_name(const ScopeContext& ctx, std::string_view text) {
+  std::string normalized = trim_copy(text);
+  while (normalized.starts_with("::")) {
+    normalized.erase(0, 2);
+  }
+
+  if (normalized.empty()) {
+    return {};
+  }
+
+  if (normalized.find("::") != std::string::npos) {
+    return normalized;
+  }
+
+  const std::string scope = join_scopes(ctx.scopes);
+  if (scope.empty()) {
+    return normalized;
+  }
+
+  return scope + "::" + normalized;
 }
 
 [[nodiscard]] std::string trim_signature(std::string text) {
@@ -387,6 +428,7 @@ public:
   explicit SymbolCollector(std::string_view source) : source_{source} {}
 
   [[nodiscard]] CppParser::Symbols collect(TSNode root) {
+    collect_includes(root);
     CppParser::Symbols symbols;
     walk(root, ScopeContext{}, symbols);
     return symbols;
@@ -394,18 +436,100 @@ public:
 
 private:
   void emit_symbol(CppParser::Symbols& symbols, SymbolKind kind, const ScopeContext& ctx,
-                   TSNode node, std::string_view name_text, std::string signature = {}) {
+                   TSNode node, std::string_view name_text, std::string signature = {},
+                   SymbolDependencies dependencies = {}) {
     Symbol symbol{};
     symbol.kind = kind;
     symbol.qualified_name = qualify_name(ctx, name_text);
     symbol.signature = std::move(signature);
     symbol.start_line = ts_node_start_point(node).row + 1U;
     symbol.end_line = ts_node_end_point(node).row + 1U;
+    dependencies.includes = file_includes_;
+    symbol.dependencies = std::move(dependencies);
     if (symbol.kind == SymbolKind::Class) {
       known_classes_.insert(symbol.qualified_name);
     }
 
     symbols.push_back(std::move(symbol));
+  }
+
+  void collect_includes(TSNode node) {
+    if (ts_node_is_null(node) || ts_node_is_missing(node) || ts_node_is_extra(node) ||
+        ts_node_is_error(node)) {
+      return;
+    }
+
+    const std::string_view type{ts_node_type(node)};
+    if (type == "preproc_include") {
+      TSNode path_node = child_by_field(node, "path");
+      if (!ts_node_is_null(path_node)) {
+        append_unique(file_includes_, normalize_include_path(source_slice(source_, path_node)));
+      }
+      return;
+    }
+
+    const auto named_child_count = ts_node_named_child_count(node);
+    for (std::uint32_t i = 0; i < named_child_count; ++i) {
+      collect_includes(ts_node_named_child(node, i));
+    }
+  }
+
+  [[nodiscard]] std::vector<std::string> collect_base_classes(TSNode node,
+                                                              const ScopeContext& ctx) const {
+    std::vector<std::string> base_classes;
+    const auto named_child_count = ts_node_named_child_count(node);
+    for (std::uint32_t i = 0; i < named_child_count; ++i) {
+      const TSNode child = ts_node_named_child(node, i);
+      if (std::string_view{ts_node_type(child)} != "base_class_clause") {
+        continue;
+      }
+
+      const auto base_child_count = ts_node_named_child_count(child);
+      for (std::uint32_t j = 0; j < base_child_count; ++j) {
+        const TSNode base_node = ts_node_named_child(child, j);
+        const std::string_view base_type{ts_node_type(base_node)};
+        if (base_type == "access_specifier" || base_type == "attribute_declaration") {
+          continue;
+        }
+
+        const std::string base_name =
+            qualify_dependency_name(ctx, source_slice(source_, base_node));
+        if (!base_name.empty()) {
+          append_unique(base_classes, base_name);
+        }
+      }
+    }
+
+    return base_classes;
+  }
+
+  [[nodiscard]] std::vector<std::string> collect_call_targets(TSNode node) const {
+    std::vector<std::string> calls;
+    collect_call_targets(node, calls);
+    return calls;
+  }
+
+  void collect_call_targets(TSNode node, std::vector<std::string>& calls) const {
+    if (ts_node_is_null(node) || ts_node_is_missing(node) || ts_node_is_extra(node) ||
+        ts_node_is_error(node)) {
+      return;
+    }
+
+    if (std::string_view{ts_node_type(node)} == "call_expression") {
+      TSNode function_node = child_by_field(node, "function");
+      if (!ts_node_is_null(function_node)) {
+        const std::string call_name =
+            normalize_qualified_name(source_slice(source_, function_node));
+        if (!call_name.empty()) {
+          append_unique(calls, call_name);
+        }
+      }
+    }
+
+    const auto named_child_count = ts_node_named_child_count(node);
+    for (std::uint32_t i = 0; i < named_child_count; ++i) {
+      collect_call_targets(ts_node_named_child(node, i), calls);
+    }
   }
 
   void walk_named_children(TSNode node, ScopeContext ctx, CppParser::Symbols& symbols) {
@@ -426,7 +550,9 @@ private:
 
   void emit_class(TSNode node, ScopeContext ctx, CppParser::Symbols& symbols) {
     const std::string name = symbol_name_from_node(node, source_);
-    emit_symbol(symbols, SymbolKind::Class, ctx, node, name);
+    SymbolDependencies dependencies;
+    dependencies.base_classes = collect_base_classes(node, ctx);
+    emit_symbol(symbols, SymbolKind::Class, ctx, node, name, {}, std::move(dependencies));
 
     ScopeContext child_ctx = std::move(ctx);
     child_ctx.scopes.push_back(name);
@@ -456,7 +582,6 @@ private:
   }
 
   void emit_function_like(TSNode node, ScopeContext ctx, CppParser::Symbols& symbols) {
-    const std::string_view type{ts_node_type(node)};
     TSNode declarator = child_by_field(node, "declarator");
 
     if (ts_node_is_null(declarator)) {
@@ -474,11 +599,15 @@ private:
 
     const SymbolKind kind = method_like ? SymbolKind::Method : SymbolKind::Function;
     const TSNode body_node = child_by_field(node, "body");
+    SymbolDependencies dependencies;
+    if (!ts_node_is_null(body_node)) {
+      dependencies.outgoing_calls = collect_call_targets(body_node);
+    }
     const std::string signature = ts_node_is_null(body_node)
                                       ? signature_for_node(node, source_)
                                       : signature_for_node(node, source_, body_node);
 
-    emit_symbol(symbols, kind, ctx, node, name, signature);
+    emit_symbol(symbols, kind, ctx, node, name, signature, std::move(dependencies));
     walk_named_children(node, std::move(ctx), symbols);
   }
 
@@ -549,6 +678,7 @@ private:
   }
 
   std::string_view source_;
+  std::vector<std::string> file_includes_;
   std::unordered_set<std::string> known_classes_;
 };
 
