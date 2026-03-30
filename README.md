@@ -5,7 +5,7 @@ QodeLoc is a local code-intelligence monorepo for C++ parsing, retrieval, and MC
 ## Bootstrap
 
 1. Check `ENVIRONMENT.md` for the verified toolchain.
-2. Run `make up` to start the local dev stack.
+2. Run `make up` to start the local dev stack. Docker will build the Ubuntu-based llama.cpp server image on first run and download the TinyLlama test model into the cache volume.
 3. Run `make status` to inspect service health.
 
 ## Model Commands
@@ -60,7 +60,7 @@ Core-specific make targets are available alongside that scaffold:
 
 ## Dev Commands
 
-- `make up` - start Qdrant, LiteLLM, and llama.cpp
+- `make up` - start Qdrant, LiteLLM, and the local Ubuntu-based llama.cpp server
 - `make logs` - stream container logs
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes

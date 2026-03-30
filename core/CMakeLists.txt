@@ -26,6 +26,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(spdlog CONFIG REQUIRED)
+find_package(duckdb CONFIG REQUIRED)
 find_package(tree-sitter CONFIG REQUIRED)
 find_package(tree-sitter-cpp CONFIG REQUIRED)
 
@@ -40,9 +41,9 @@ function(qodeloc_core_apply_warnings target_name)
     endif()
 endfunction()
 
-function(qodeloc_core_add_module module_name source_file)
+function(qodeloc_core_add_module module_name)
     set(target_name "qodeloc_${module_name}")
-    add_library(${target_name} STATIC "${source_file}")
+    add_library(${target_name} STATIC ${ARGN})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME "${module_name}")
     target_compile_features(${target_name} PRIVATE cxx_std_23)
     target_include_directories(${target_name} PUBLIC "${QODELOC_CORE_INCLUDE_DIR}")
@@ -56,12 +57,16 @@ qodeloc_core_add_module(indexer "${QODELOC_CORE_SOURCE_DIR}/indexer.cpp")
 qodeloc_core_add_module(llm "${QODELOC_CORE_SOURCE_DIR}/llm.cpp")
 qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
 qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
-qodeloc_core_add_module(storage "${QODELOC_CORE_SOURCE_DIR}/storage.cpp")
+qodeloc_core_add_module(storage
+    "${QODELOC_CORE_SOURCE_DIR}/storage.cpp"
+)
 
 target_link_libraries(qodeloc_parser PUBLIC
     tree-sitter::tree-sitter
     tree-sitter-cpp::tree-sitter-cpp
 )
+
+target_link_libraries(qodeloc_storage PUBLIC duckdb::duckdb)
 
 add_executable(qodeloc-core
     src/main.cpp
@@ -110,4 +115,19 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-parser-tests)
 
     add_test(NAME qodeloc-parser COMMAND qodeloc-parser-tests)
+
+    add_executable(qodeloc-storage-tests
+        tests/storage_test.cpp
+    )
+
+    target_compile_features(qodeloc-storage-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-storage-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-storage-tests PRIVATE
+        qodeloc::storage
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-storage-tests)
+
+    add_test(NAME qodeloc-storage COMMAND qodeloc-storage-tests)
 endif()

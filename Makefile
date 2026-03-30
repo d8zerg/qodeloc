@@ -2,7 +2,7 @@ COMPOSE_FILE := infra/docker-compose.yml
 COMPOSE ?= docker compose
 PROJECT ?= qodeloc
 FMT_SOURCES := $(shell find core testdata \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
-LINT_SOURCES := $(shell find core \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
+LINT_SOURCES := $(shell find core \( -type d \( -name build -o -name tests \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
 CLANG_TIDY_QUIET ?= --quiet
@@ -20,7 +20,7 @@ MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
 .PHONY: up down logs reset status fmt lint build test release up-core down-core install-models-all $(MODEL_TARGETS)
 
 up:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
+	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --build --wait --remove-orphans
 
 down:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down --remove-orphans
@@ -30,7 +30,7 @@ logs:
 
 reset:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down -v --remove-orphans
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
+	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --build --wait --remove-orphans
 
 status:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) ps
