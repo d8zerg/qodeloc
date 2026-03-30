@@ -16,6 +16,20 @@ cmake --build --preset debug
 
 The same flow is wrapped by `make build` from the repository root.
 
+## Module Skeleton
+
+Phase 1.2 splits the core into static libraries:
+
+- `libparser`
+- `libindexer`
+- `libretriever`
+- `libembedder`
+- `libllm`
+- `libstorage`
+- `libapi`
+
+Each library currently exposes a no-op public class under `include/qodeloc/core/` and is linked into `qodeloc-core`. The internal contract is documented in [`docs/api-internal.md`](../../docs/api-internal.md).
+
 ## Presets
 
 - `debug`

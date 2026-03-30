@@ -27,7 +27,7 @@ If a repo is gated, authenticate first with `hf auth login`.
 
 ## Core Engine
 
-`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The first target is a structured-logging stub that prepares the parser/indexer/API split in later steps.
+`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The first target is a structured-logging stub wired against the `libparser`/`libindexer`/`libretriever`/`libembedder`/`libllm`/`libstorage`/`libapi` skeleton.
 
 Planned workflow:
 

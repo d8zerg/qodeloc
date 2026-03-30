@@ -27,6 +27,35 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 
+set(QODELOC_CORE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(QODELOC_CORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+function(qodeloc_core_apply_warnings target_name)
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+function(qodeloc_core_add_module module_name source_file)
+    set(target_name "qodeloc_${module_name}")
+    add_library(${target_name} STATIC "${source_file}")
+    set_target_properties(${target_name} PROPERTIES OUTPUT_NAME "${module_name}")
+    target_compile_features(${target_name} PRIVATE cxx_std_23)
+    target_include_directories(${target_name} PUBLIC "${QODELOC_CORE_INCLUDE_DIR}")
+    qodeloc_core_apply_warnings(${target_name})
+    add_library(qodeloc::${module_name} ALIAS ${target_name})
+endfunction()
+
+qodeloc_core_add_module(api "${QODELOC_CORE_SOURCE_DIR}/api.cpp")
+qodeloc_core_add_module(embedder "${QODELOC_CORE_SOURCE_DIR}/embedder.cpp")
+qodeloc_core_add_module(indexer "${QODELOC_CORE_SOURCE_DIR}/indexer.cpp")
+qodeloc_core_add_module(llm "${QODELOC_CORE_SOURCE_DIR}/llm.cpp")
+qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
+qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
+qodeloc_core_add_module(storage "${QODELOC_CORE_SOURCE_DIR}/storage.cpp")
+
 add_executable(qodeloc-core
     src/main.cpp
 )
@@ -37,13 +66,19 @@ target_compile_definitions(qodeloc-core PRIVATE
     QODELOC_CORE_PROJECT_VERSION="${QODELOC_CORE_PROJECT_VERSION}"
     QODELOC_CORE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 )
-target_link_libraries(qodeloc-core PRIVATE spdlog::spdlog_header_only)
+target_include_directories(qodeloc-core PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+target_link_libraries(qodeloc-core PRIVATE
+    qodeloc::api
+    qodeloc::embedder
+    qodeloc::indexer
+    qodeloc::llm
+    qodeloc::parser
+    qodeloc::retriever
+    qodeloc::storage
+    spdlog::spdlog_header_only
+)
 
-if(MSVC)
-    target_compile_options(qodeloc-core PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(qodeloc-core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+qodeloc_core_apply_warnings(qodeloc-core)
 
 if(BUILD_TESTING)
     enable_testing()
