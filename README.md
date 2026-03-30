@@ -27,20 +27,21 @@ If a repo is gated, authenticate first with `hf auth login`.
 
 ## Core Engine
 
-`core/` is still a scaffold placeholder. The build and launch flow will be added in step 1.1 of [docs/QodeLoc_DevPlan.md](/home/dsb/repos/github/d8zerg/qodeloc-workspace/docs/QodeLoc_DevPlan.md).
+`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The first target is a structured-logging stub that prepares the parser/indexer/API split in later steps.
 
 Planned workflow:
 
-- configure: `cmake --preset debug`
-- build: `cmake --build --preset debug`
-- run: `./build/debug/qodeloc-core`
+- install deps: `conan install core -of core/build/debug -s build_type=Debug -s compiler.cppstd=23 -g CMakeDeps -g CMakeToolchain --build=missing`
+- configure: `cd core && cmake --preset debug`
+- build: `cd core && cmake --build --preset debug`
+- run: `./core/build/debug/qodeloc-core`
 
-The initial binary will be a structured-logging stub; later steps will grow it into the parser/indexer/API service.
+`make build` wraps the same flow from the repository root.
 
-Core-specific make targets will live alongside that scaffold:
+Core-specific make targets are available alongside that scaffold:
 
 - `make build` - configure and build `core/` once `core/CMakeLists.txt` exists
-- `make test` - run CTest for the core build tree
+- `make test` - run the core smoke test through CTest
 - `make release` - build the core Docker image from `core/Dockerfile`
 - `make up-core` - start the core Docker Compose stack when it is added
 - `make down-core` - stop the core Docker Compose stack

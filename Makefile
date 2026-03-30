@@ -1,12 +1,15 @@
 COMPOSE_FILE := infra/docker-compose.yml
 COMPOSE ?= docker compose
 PROJECT ?= qodeloc
-CPP_SOURCES := $(shell find core tests testdata -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
+CPP_SOURCES := $(shell find core tests testdata \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
+CLANG_TIDY_QUIET ?= --quiet
 PYTHON ?= python3
-CORE_BUILD_DIR ?= build/core
+CORE_BUILD_PRESET ?= debug
+CORE_BUILD_DIR ?= core/build/$(CORE_BUILD_PRESET)
 CORE_BUILD_TYPE ?= Debug
+CORE_CPPSTD ?= 23
 CORE_IMAGE ?= qodeloc/core:dev
 CORE_COMPOSE_FILE ?= infra/core/docker-compose.yml
 MODEL_INSTALLER ?= scripts/install-models.py
@@ -40,12 +43,22 @@ fmt:
 
 lint:
 	@if [ -n "$(CPP_SOURCES)" ]; then \
-		if [ -f build/compile_commands.json ]; then \
-			for file in $(CPP_SOURCES); do \
-				$(CLANG_TIDY) "$$file" -p build; \
+		if [ -f $(CORE_BUILD_DIR)/compile_commands.json ]; then \
+			set -- $(CPP_SOURCES); total=$$#; i=0; \
+			for file in "$$@"; do \
+				i=$$((i + 1)); \
+				printf '[%d/%d] %s\n' "$$i" "$$total" "$$file"; \
+				tmp_file=$$(mktemp); \
+				$(CLANG_TIDY) $(CLANG_TIDY_QUIET) "$$file" -p $(CORE_BUILD_DIR) > /dev/null 2>"$$tmp_file"; \
+				status=$$?; \
+				awk 'index($$0, "warnings generated.") == 0 && index($$0, "Suppressed ") == 0' "$$tmp_file" >&2; \
+				rm -f "$$tmp_file"; \
+				if [ $$status -ne 0 ]; then \
+					exit $$status; \
+				fi; \
 			done; \
 		else \
-			echo "Skipping clang-tidy because build/compile_commands.json is missing."; \
+			echo "Skipping clang-tidy because $(CORE_BUILD_DIR)/compile_commands.json is missing."; \
 		fi; \
 	else \
 		echo "No C++ sources found yet."; \
@@ -53,8 +66,9 @@ lint:
 
 build:
 	@if [ -f core/CMakeLists.txt ]; then \
-		cmake -S core -B $(CORE_BUILD_DIR) -G Ninja -DCMAKE_BUILD_TYPE=$(CORE_BUILD_TYPE); \
-		cmake --build $(CORE_BUILD_DIR); \
+		conan install core -of $(CORE_BUILD_DIR) -s build_type=$(CORE_BUILD_TYPE) -s compiler.cppstd=$(CORE_CPPSTD) -g CMakeDeps -g CMakeToolchain --build=missing; \
+		(cd core && cmake --preset $(CORE_BUILD_PRESET)); \
+		(cd core && cmake --build --preset $(CORE_BUILD_PRESET)); \
 	else \
 		echo "Core scaffold is not ready yet. Step 1.1 will add core/CMakeLists.txt."; \
 	fi

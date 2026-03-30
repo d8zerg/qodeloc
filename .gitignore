@@ -65,6 +65,7 @@ venv/
 conanbuild/
 conan.lock
 generators/
+CMakeUserPresets.json
 
 # Local environment files
 .env
