@@ -26,6 +26,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(spdlog CONFIG REQUIRED)
+find_package(tree-sitter CONFIG REQUIRED)
+find_package(tree-sitter-cpp CONFIG REQUIRED)
 
 set(QODELOC_CORE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(QODELOC_CORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -56,6 +58,11 @@ qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
 qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
 qodeloc_core_add_module(storage "${QODELOC_CORE_SOURCE_DIR}/storage.cpp")
 
+target_link_libraries(qodeloc_parser PUBLIC
+    tree-sitter::tree-sitter
+    tree-sitter-cpp::tree-sitter-cpp
+)
+
 add_executable(qodeloc-core
     src/main.cpp
 )
@@ -83,4 +90,24 @@ qodeloc_core_apply_warnings(qodeloc-core)
 if(BUILD_TESTING)
     enable_testing()
     add_test(NAME qodeloc-core-smoke COMMAND qodeloc-core)
+
+    find_package(GTest CONFIG REQUIRED)
+
+    add_executable(qodeloc-parser-tests
+        tests/parser_test.cpp
+    )
+
+    target_compile_features(qodeloc-parser-tests PRIVATE cxx_std_23)
+    target_compile_definitions(qodeloc-parser-tests PRIVATE
+        QODELOC_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../testdata"
+    )
+    target_include_directories(qodeloc-parser-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-parser-tests PRIVATE
+        qodeloc::parser
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-parser-tests)
+
+    add_test(NAME qodeloc-parser COMMAND qodeloc-parser-tests)
 endif()

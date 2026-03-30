@@ -1,7 +1,8 @@
 COMPOSE_FILE := infra/docker-compose.yml
 COMPOSE ?= docker compose
 PROJECT ?= qodeloc
-CPP_SOURCES := $(shell find core tests testdata \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
+FMT_SOURCES := $(shell find core testdata \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
+LINT_SOURCES := $(shell find core \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
 CLANG_TIDY_QUIET ?= --quiet
@@ -35,16 +36,16 @@ status:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) ps
 
 fmt:
-	@if [ -n "$(CPP_SOURCES)" ]; then \
-		echo "$(CPP_SOURCES)" | tr ' ' '\n' | xargs $(CLANG_FORMAT) -i; \
+	@if [ -n "$(FMT_SOURCES)" ]; then \
+		echo "$(FMT_SOURCES)" | tr ' ' '\n' | xargs $(CLANG_FORMAT) -i; \
 	else \
 		echo "No C++ sources found yet."; \
 	fi
 
 lint:
-	@if [ -n "$(CPP_SOURCES)" ]; then \
+	@if [ -n "$(LINT_SOURCES)" ]; then \
 		if [ -f $(CORE_BUILD_DIR)/compile_commands.json ]; then \
-			set -- $(CPP_SOURCES); total=$$#; i=0; \
+			set -- $(LINT_SOURCES); total=$$#; i=0; \
 			for file in "$$@"; do \
 				i=$$((i + 1)); \
 				printf '[%d/%d] %s\n' "$$i" "$$total" "$$file"; \
