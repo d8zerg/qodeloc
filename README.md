@@ -1,2 +1,2 @@
-# qodeloc
-QodeLoc AI-assistant
+# QodeLoc AI-assistant
+
