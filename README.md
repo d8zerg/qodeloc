@@ -8,6 +8,23 @@ QodeLoc is a local code-intelligence monorepo for C++ parsing, retrieval, and MC
 2. Run `make up` to start the local dev stack.
 3. Run `make status` to inspect service health.
 
+## Model Commands
+
+The model installer resolves the Hugging Face CLI from your local `pipx` install. If `hf` is not on `PATH`, it will fall back to `~/.local/bin/hf` automatically.
+
+Use these targets to install one model at a time:
+
+- `make install-models-jina-code` - download the embedding model used for code search
+- `make install-models-llama31-8b` - download the lightweight 8B generation model
+- `make install-models-codestral2` - download the Codestral GGUF slot
+- `make install-models-qwen3-14b` - download the 14B Qwen GGUF model
+- `make install-models-qwen3-30b-a3b` - download the 30B-A3B Qwen GGUF model
+- `make install-models-all` - download the full catalog
+
+The CLI shows download progress while each model is fetched. Artifacts land under `models/downloads/<short-name>/`, and the local cache stays in ignored paths under `models/cache/`.
+
+If a repo is gated, authenticate first with `hf auth login`.
+
 ## Core Engine
 
 `core/` is still a scaffold placeholder. The build and launch flow will be added in step 1.1 of [docs/QodeLoc_DevPlan.md](/home/dsb/repos/github/d8zerg/qodeloc-workspace/docs/QodeLoc_DevPlan.md).

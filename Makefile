@@ -4,12 +4,16 @@ PROJECT ?= qodeloc
 CPP_SOURCES := $(shell find core tests testdata -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
+PYTHON ?= python3
 CORE_BUILD_DIR ?= build/core
 CORE_BUILD_TYPE ?= Debug
 CORE_IMAGE ?= qodeloc/core:dev
 CORE_COMPOSE_FILE ?= infra/core/docker-compose.yml
+MODEL_INSTALLER ?= scripts/install-models.py
+MODEL_NAMES := jina-code llama31-8b codestral2 qwen3-14b qwen3-30b-a3b
+MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
 
-.PHONY: up down logs reset status fmt lint build test release up-core down-core
+.PHONY: up down logs reset status fmt lint build test release up-core down-core install-models-all $(MODEL_TARGETS)
 
 up:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
@@ -82,3 +86,13 @@ down-core:
 	else \
 		echo "Core compose stack is not ready yet."; \
 	fi
+
+install-models-all:
+	$(PYTHON) $(MODEL_INSTALLER) all
+
+define INSTALL_MODEL_TARGET
+install-models-$(1):
+	$(PYTHON) $(MODEL_INSTALLER) $(1)
+endef
+
+$(foreach model,$(MODEL_NAMES),$(eval $(call INSTALL_MODEL_TARGET,$(model))))

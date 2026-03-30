@@ -1,0 +1,57 @@
+{
+  "defaults": {
+    "revision": "main",
+    "cache_dir": "models/cache/hf"
+  },
+  "models": {
+    "jina-code": {
+      "repo_id": "jinaai/jina-embeddings-v2-base-code",
+      "kind": "embedding",
+      "include": [],
+      "local_dir": "models/downloads/jina-code",
+      "approx_vram_gb": "1",
+      "expected_dimension": 768,
+      "notes": "Open code embedding model. Downloads the full repository so the tokenizer, config, and weights stay together."
+    },
+    "llama31-8b": {
+      "repo_id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+      "kind": "generation",
+      "include": [
+        "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+      ],
+      "local_dir": "models/downloads/llama31-8b",
+      "approx_vram_gb": "6-8",
+      "notes": "Minimal generation model for constrained GPU setups. May require Meta license acceptance and Hugging Face login."
+    },
+    "codestral2": {
+      "repo_id": "bartowski/Codestral-22B-v0.1-GGUF",
+      "kind": "generation",
+      "include": [
+        "Codestral-22B-v0.1-Q4_K_M.gguf"
+      ],
+      "local_dir": "models/downloads/codestral2",
+      "approx_vram_gb": "16-24",
+      "notes": "Historical codestral2 slot backed by the published Codestral 22B GGUF build. May require license acceptance and Hugging Face login."
+    },
+    "qwen3-14b": {
+      "repo_id": "ggml-org/Qwen3-14B-GGUF",
+      "kind": "generation",
+      "include": [
+        "Qwen3-14B-Q4_K_M.gguf"
+      ],
+      "local_dir": "models/downloads/qwen3-14b",
+      "approx_vram_gb": "12-16",
+      "notes": "Mid-sized Qwen generation model in Q4_K_M quantization."
+    },
+    "qwen3-30b-a3b": {
+      "repo_id": "Qwen/Qwen3-30B-A3B-GGUF",
+      "kind": "generation",
+      "include": [
+        "Qwen3-30B-A3B-Q4_K_M.gguf"
+      ],
+      "local_dir": "models/downloads/qwen3-30b-a3b",
+      "approx_vram_gb": "24-32",
+      "notes": "Larger MoE Qwen generation model in Q4_K_M quantization."
+    }
+  }
+}

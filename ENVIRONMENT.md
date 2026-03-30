@@ -11,6 +11,7 @@ Update it whenever a required tool is upgraded.
 | Conan | 2.x | Conan version 2.25.1 | `conan --version` |
 | Node.js | 20+ | v24.14.1 | `node --version` |
 | Python | 3.12 | Python 3.13.7 | `python3 --version` |
+| Hugging Face Hub CLI | current stable | 1.8.0 | `~/.local/bin/hf version` |
 | CUDA Toolkit | 12.x | CUDA compilation tools, release 12.4, V12.4.131 | `nvcc --version | tail -n 2` |
 | Git | current stable | git version 2.51.0 | `git --version` |
 | Docker Engine | current stable | Docker version 29.3.1, build c2be9cc | `docker --version` |
@@ -27,3 +28,4 @@ Update it whenever a required tool is upgraded.
 - `docker compose` is required for the local dev stack described in `infra/docker-compose.yml`.
 - `CTest` with `GoogleTest` and `GoogleMock` is the baseline for unit, integration, and end-to-end tests.
 - `clang-format` and `clang-tidy` are the baseline formatting and static-analysis tools for the C++ codebase.
+- The Hugging Face installer uses the local `hf` CLI from `pipx` and falls back to `~/.local/bin/hf` when it is not on `PATH`.
