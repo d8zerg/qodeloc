@@ -1,41 +1,86 @@
-# Prerequisites
-*.d
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
 
-# Compiled Object files
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+out/
+dist/
+coverage/
+compile_commands.json
+.ninja_deps
+.ninja_log
+
+# C and C++ artifacts
+*.d
 *.slo
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
 *.ilk
-
-# Debugger Files
 *.pdb
-
-# Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
 *.mod
 *.smod
-
-# Compiled Static libraries
 *.lai
 *.la
 *.a
 *.lib
-
-# Executables
 *.exe
 *.out
 *.app
-
-# debug information files
 *.dwo
+*.gcda
+*.gcno
+*.gcov
+
+# Node.js and TypeScript
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn-cache/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Conan and package caches
+conanbuild/
+conan.lock
+generators/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Large model artifacts
+*.gguf
+*.ggml
+*.safetensors
+models/cache/
+models/downloads/
+hf_cache/
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log

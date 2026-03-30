@@ -1,0 +1,11 @@
+# LiteLLM proxy config for the local QodeLoc dev stack.
+
+model_list:
+  - model_name: qodeloc-local
+    litellm_params:
+      model: openai/qodeloc-tinyllama
+      api_base: http://llama-cpp:8080
+      api_key: no-key
+
+litellm_settings:
+  master_key: sk-qodeloc-dev
