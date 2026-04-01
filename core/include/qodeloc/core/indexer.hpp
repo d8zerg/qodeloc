@@ -59,6 +59,7 @@ public:
   [[nodiscard]] Result index();
   [[nodiscard]] Result index(const std::filesystem::path& root_directory);
   [[nodiscard]] Result update(const std::vector<std::filesystem::path>& changed_files);
+  [[nodiscard]] Result update_from_git(std::string_view base_ref = "HEAD~1");
 
 private:
   struct PendingSymbol {

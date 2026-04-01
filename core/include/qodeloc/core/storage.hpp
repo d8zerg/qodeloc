@@ -8,6 +8,7 @@
 #include <ostream>
 #include <qodeloc/core/module.hpp>
 #include <qodeloc/core/parser.hpp>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +68,28 @@ inline std::ostream& operator<<(std::ostream& os, const ModuleDependency& depend
   return os << " depth=" << dependency.depth << '}';
 }
 
+struct CallEdge {
+  SymbolId caller_id{};
+  SymbolId callee_id{};
+
+  bool operator==(const CallEdge&) const = default;
+};
+
+struct IncludeEdge {
+  SymbolId source_id{};
+  std::string include_path;
+  std::string target_module_name;
+
+  bool operator==(const IncludeEdge&) const = default;
+};
+
+struct InheritanceEdge {
+  SymbolId derived_id{};
+  SymbolId base_id{};
+
+  bool operator==(const InheritanceEdge&) const = default;
+};
+
 class DependencyGraph final {
 public:
   DependencyGraph();
@@ -79,12 +102,19 @@ public:
   ~DependencyGraph();
 
   [[nodiscard]] bool ready() const noexcept;
+  void begin_transaction();
+  void commit_transaction();
+  void rollback_transaction() noexcept;
 
   [[nodiscard]] SymbolId write_symbol(const StoredSymbol& symbol);
+  [[nodiscard]] std::vector<SymbolId> write_symbols(std::span<const StoredSymbol> symbols);
   void write_call(SymbolId caller_id, SymbolId callee_id);
+  void write_calls(std::span<const CallEdge> calls);
   void write_include(SymbolId source_id, std::string_view include_path,
                      std::string_view target_module_name = {});
+  void write_includes(std::span<const IncludeEdge> includes);
   void write_inheritance(SymbolId derived_id, SymbolId base_id);
+  void write_inheritances(std::span<const InheritanceEdge> inheritances);
 
   [[nodiscard]] std::vector<StoredSymbol> callers_of(SymbolId symbol_id) const;
   [[nodiscard]] std::vector<StoredSymbol> callees_from(SymbolId symbol_id) const;
@@ -95,6 +125,7 @@ public:
   [[nodiscard]] std::optional<SymbolId> symbol_id_for_name(std::string_view target_name) const;
 
   void delete_file(std::string_view file_path);
+  void delete_files(std::span<const std::filesystem::path> file_paths);
 
 private:
   [[nodiscard]] ModuleId ensure_module(std::string_view module_name,

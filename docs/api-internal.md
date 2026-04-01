@@ -81,15 +81,23 @@ using SymbolId = std::int64_t;
 
 class DependencyGraph {
 public:
+  void begin_transaction();
+  void commit_transaction();
+  void rollback_transaction();
   SymbolId write_symbol(const StoredSymbol& symbol);
+  std::vector<SymbolId> write_symbols(std::span<const StoredSymbol> symbols);
   void write_call(SymbolId caller_id, SymbolId callee_id);
+  void write_calls(std::span<const CallEdge> calls);
   void write_include(SymbolId source_id, std::string include_path, std::string target_module_name = {});
+  void write_includes(std::span<const IncludeEdge> includes);
   void write_inheritance(SymbolId derived_id, SymbolId base_id);
+  void write_inheritances(std::span<const InheritanceEdge> inheritances);
   std::vector<StoredSymbol> callers_of(SymbolId symbol_id) const;
   std::vector<StoredSymbol> callees_from(SymbolId symbol_id) const;
   std::vector<ModuleDependency> transitive_module_dependencies(std::string_view module_name,
                                                                std::size_t max_depth) const;
   void delete_file(std::string_view file_path);
+  void delete_files(std::span<const std::filesystem::path> file_paths);
 };
 ```
 
@@ -101,7 +109,13 @@ The schema uses five tables:
 - `inheritance` for base/derived class edges
 - `modules` for module and directory bookkeeping
 
+`DependencyGraph` now exposes batched mutation helpers so the indexer can keep a single DuckDB transaction open while deleting stale files, inserting symbols, and writing the three edge tables. Single-row helpers remain available as thin wrappers for tests and small tooling.
+
 `Storage` is the thin `IModule` wrapper around `DependencyGraph`, so later phases can depend on the same storage layer without reworking the core bootstrap.
+
+## Git Watcher Contract
+
+`qodeloc::core::GitWatcher` shells out to `git diff --name-only HEAD~1` for the repository root and returns the changed paths as `std::filesystem::path` values. `Indexer::update_from_git()` wraps that helper and passes the resulting paths into the existing incremental update pipeline.
 
 ## Embedder Contract
 
@@ -173,6 +187,8 @@ public:
                    EmbeddingBatchFn embedding_batch = {});
   Result index();
   Result index(const std::filesystem::path& root_directory);
+  Result update(const std::vector<std::filesystem::path>& changed_files);
+  Result update_from_git(std::string_view base_ref = "HEAD~1");
 };
 ```
 

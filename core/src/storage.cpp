@@ -1,12 +1,15 @@
 #include <algorithm>
+#include <array>
 #include <duckdb.h>
 #include <filesystem>
 #include <functional>
 #include <qodeloc/core/storage.hpp>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -115,13 +118,25 @@ void trim_in_place(std::string& value) {
   return std::to_string(value);
 }
 
-[[nodiscard]] std::string join_ids(const std::vector<ModuleId>& ids) {
+[[nodiscard]] std::string join_ids(std::span<const std::int64_t> ids) {
   std::string result = "(";
   for (std::size_t index = 0; index < ids.size(); ++index) {
     if (index > 0) {
       result += ", ";
     }
     result += sql_int(ids[index]);
+  }
+  result += ")";
+  return result;
+}
+
+[[nodiscard]] std::string join_quoted_strings(const std::vector<std::string>& values) {
+  std::string result = "(";
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if (index > 0) {
+      result += ", ";
+    }
+    result += sql_quote(values[index]);
   }
   result += ")";
   return result;
@@ -237,132 +252,340 @@ public:
     return ready_;
   }
 
-  [[nodiscard]] SymbolId write_symbol(const StoredSymbol& symbol) {
+  void begin_transaction() {
     ensure_ready();
-
-    const std::string normalized_file_path =
-        normalize_path(std::filesystem::path(symbol.file_path));
-    const std::string normalized_module_name = normalize_module_name(
-        symbol.module_name,
-        std::filesystem::path(normalized_file_path).parent_path().generic_string());
-    const std::string normalized_module_path =
-        normalize_module_path(symbol.module_path, normalized_module_name);
-
-    const std::string lookup_sql =
-        "SELECT symbol_id FROM symbols WHERE file_path = " + sql_quote(normalized_file_path) +
-        " AND qualified_name = " + sql_quote(symbol.qualified_name) +
-        " AND kind = " + sql_int(static_cast<std::int64_t>(symbol.kind)) +
-        " AND start_line = " + sql_int(static_cast<std::int64_t>(symbol.start_line)) +
-        " AND end_line = " + sql_int(static_cast<std::int64_t>(symbol.end_line)) + " LIMIT 1";
-    const auto existing_id = fetch_scalar_int(lookup_sql);
-    if (existing_id > 0) {
-      return existing_id;
+    if (transaction_open_) {
+      throw std::runtime_error("DuckDB transaction is already open");
     }
-
-    const auto module_id = ensure_module(normalized_module_name, normalized_module_path);
-    const auto symbol_id = next_symbol_id();
-    const std::string insert_sql =
-        "INSERT INTO symbols (symbol_id, module_id, file_path, kind, qualified_name, signature, "
-        "start_line, end_line) VALUES (" +
-        sql_int(symbol_id) + ", " + sql_int(module_id) + ", " + sql_quote(normalized_file_path) +
-        ", " + sql_int(static_cast<std::int64_t>(symbol.kind)) + ", " +
-        sql_quote(symbol.qualified_name) + ", " + sql_quote(symbol.signature) + ", " +
-        sql_int(static_cast<std::int64_t>(symbol.start_line)) + ", " +
-        sql_int(static_cast<std::int64_t>(symbol.end_line)) + ")";
-    execute(insert_sql);
-    return symbol_id;
+    execute("BEGIN TRANSACTION");
+    transaction_open_ = true;
   }
 
-  void write_call(SymbolId caller_id, SymbolId callee_id) {
+  void commit_transaction() {
     ensure_ready();
+    if (!transaction_open_) {
+      return;
+    }
+    execute("COMMIT");
+    transaction_open_ = false;
+  }
 
-    (void)fetch_symbol(caller_id);
-    (void)fetch_symbol(callee_id);
-    const auto caller_module_id = fetch_symbol_module_id(caller_id);
-    const auto callee_module_id = fetch_symbol_module_id(callee_id);
-
-    const std::string lookup_sql =
-        "SELECT call_id FROM calls WHERE caller_symbol_id = " + sql_int(caller_id) +
-        " AND callee_symbol_id = " + sql_int(callee_id) + " LIMIT 1";
-    if (fetch_scalar_int(lookup_sql) > 0) {
+  void rollback_transaction() noexcept {
+    if (!transaction_open_) {
       return;
     }
 
-    const auto call_id = next_call_id();
-    const std::string insert_sql =
-        "INSERT INTO calls (call_id, caller_symbol_id, callee_symbol_id, "
-        "caller_module_id, callee_module_id) VALUES (" +
-        sql_int(call_id) + ", " + sql_int(caller_id) + ", " + sql_int(callee_id) + ", " +
-        sql_int(caller_module_id) + ", " + sql_int(callee_module_id) + ")";
+    try {
+      execute("ROLLBACK");
+    } catch (const std::exception& rollback_error) {
+      (void)rollback_error;
+      // Best effort rollback; preserve the original failure.
+    }
+    transaction_open_ = false;
+  }
+
+  [[nodiscard]] SymbolId write_symbol(const StoredSymbol& symbol) {
+    const auto symbols = std::array<StoredSymbol, 1>{symbol};
+    return write_symbols(symbols).front();
+  }
+
+  [[nodiscard]] std::vector<SymbolId> write_symbols(std::span<const StoredSymbol> symbols) {
+    ensure_ready();
+    if (symbols.empty()) {
+      return {};
+    }
+
+    struct TransactionScope {
+      explicit TransactionScope(DuckDbStorageStore& store_) : store(store_) {
+        started = store.begin_transaction_if_needed();
+      }
+
+      ~TransactionScope() {
+        if (started && !committed) {
+          store.rollback_transaction();
+        }
+      }
+
+      void commit() {
+        if (started && !committed) {
+          store.commit_transaction();
+          committed = true;
+        }
+      }
+
+      DuckDbStorageStore& store;
+      bool started{false};
+      bool committed{false};
+    };
+
+    TransactionScope transaction(*this);
+
+    std::vector<SymbolId> symbol_ids;
+    symbol_ids.reserve(symbols.size());
+    std::unordered_map<std::string, ModuleId> module_cache;
+    module_cache.reserve(symbols.size());
+
+    std::string insert_sql =
+        "INSERT INTO symbols (symbol_id, module_id, file_path, kind, qualified_name, signature, "
+        "start_line, end_line) VALUES ";
+
+    for (std::size_t index = 0; index < symbols.size(); ++index) {
+      const auto& symbol = symbols[index];
+      const std::string normalized_file_path =
+          normalize_path(std::filesystem::path(symbol.file_path));
+      const std::string normalized_module_name = normalize_module_name(
+          symbol.module_name,
+          std::filesystem::path(normalized_file_path).parent_path().generic_string());
+      const std::string normalized_module_path =
+          normalize_module_path(symbol.module_path, normalized_module_name);
+      const std::string module_key = normalized_module_name + '\x1f' + normalized_module_path;
+
+      ModuleId module_id{};
+      if (const auto cached = module_cache.find(module_key); cached != module_cache.end()) {
+        module_id = cached->second;
+      } else {
+        module_id = ensure_module(normalized_module_name, normalized_module_path);
+        module_cache.emplace(module_key, module_id);
+      }
+
+      const auto symbol_id = next_symbol_id();
+      symbol_ids.push_back(symbol_id);
+      if (index > 0) {
+        insert_sql += ", ";
+      }
+      insert_sql += "(" + sql_int(symbol_id) + ", " + sql_int(module_id) + ", " +
+                    sql_quote(normalized_file_path) + ", " +
+                    sql_int(static_cast<std::int64_t>(symbol.kind)) + ", " +
+                    sql_quote(symbol.qualified_name) + ", " + sql_quote(symbol.signature) + ", " +
+                    sql_int(static_cast<std::int64_t>(symbol.start_line)) + ", " +
+                    sql_int(static_cast<std::int64_t>(symbol.end_line)) + ")";
+    }
+
     execute(insert_sql);
+    transaction.commit();
+    return symbol_ids;
+  }
+
+  void write_call(SymbolId caller_id, SymbolId callee_id) {
+    const auto edges = std::array<CallEdge, 1>{CallEdge{caller_id, callee_id}};
+    write_calls(edges);
+  }
+
+  void write_calls(std::span<const CallEdge> calls) {
+    ensure_ready();
+    if (calls.empty()) {
+      return;
+    }
+
+    struct TransactionScope {
+      explicit TransactionScope(DuckDbStorageStore& store_) : store(store_) {
+        started = store.begin_transaction_if_needed();
+      }
+
+      ~TransactionScope() {
+        if (started && !committed) {
+          store.rollback_transaction();
+        }
+      }
+
+      void commit() {
+        if (started && !committed) {
+          store.commit_transaction();
+          committed = true;
+        }
+      }
+
+      DuckDbStorageStore& store;
+      bool started{false};
+      bool committed{false};
+    };
+
+    TransactionScope transaction(*this);
+
+    std::vector<SymbolId> symbol_ids;
+    symbol_ids.reserve(calls.size() * 2);
+    for (const auto& edge : calls) {
+      symbol_ids.push_back(edge.caller_id);
+      symbol_ids.push_back(edge.callee_id);
+    }
+    const auto module_ids = fetch_symbol_module_map(symbol_ids);
+
+    std::string insert_sql =
+        "INSERT INTO calls (call_id, caller_symbol_id, callee_symbol_id, caller_module_id, "
+        "callee_module_id) VALUES ";
+    for (std::size_t index = 0; index < calls.size(); ++index) {
+      const auto& edge = calls[index];
+      const auto caller_module = module_ids.find(edge.caller_id);
+      const auto callee_module = module_ids.find(edge.callee_id);
+      if (caller_module == module_ids.end() || callee_module == module_ids.end()) {
+        throw std::runtime_error("Unknown symbol id in batched call edge");
+      }
+
+      if (index > 0) {
+        insert_sql += ", ";
+      }
+      insert_sql += "(" + sql_int(next_call_id()) + ", " + sql_int(edge.caller_id) + ", " +
+                    sql_int(edge.callee_id) + ", " + sql_int(caller_module->second) + ", " +
+                    sql_int(callee_module->second) + ")";
+    }
+
+    execute(insert_sql);
+    transaction.commit();
   }
 
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   void write_include(SymbolId source_id, std::string_view include_path,
                      std::string_view target_module_name) {
+    const auto includes = std::array<IncludeEdge, 1>{
+        IncludeEdge{source_id, std::string(include_path), std::string(target_module_name)}};
+    write_includes(includes);
+  }
+
+  void write_includes(std::span<const IncludeEdge> includes) {
     ensure_ready();
-
-    (void)fetch_symbol(source_id);
-    const auto source_module_id = fetch_symbol_module_id(source_id);
-    const std::string normalized_include_path = normalize_include_path(include_path);
-
-    ModuleId target_module_id = 0;
-    if (!target_module_name.empty()) {
-      target_module_id = ensure_module(target_module_name);
-    }
-
-    std::string lookup_sql =
-        "SELECT include_id FROM includes WHERE source_symbol_id = " + sql_int(source_id) +
-        " AND include_path = " + sql_quote(normalized_include_path);
-    if (target_module_id > 0) {
-      lookup_sql += " AND target_module_id = " + sql_int(target_module_id);
-    } else {
-      lookup_sql += " AND target_module_id IS NULL";
-    }
-    lookup_sql += " LIMIT 1";
-
-    if (fetch_scalar_int(lookup_sql) > 0) {
+    if (includes.empty()) {
       return;
     }
 
-    const auto include_id = next_include_id();
+    struct TransactionScope {
+      explicit TransactionScope(DuckDbStorageStore& store_) : store(store_) {
+        started = store.begin_transaction_if_needed();
+      }
+
+      ~TransactionScope() {
+        if (started && !committed) {
+          store.rollback_transaction();
+        }
+      }
+
+      void commit() {
+        if (started && !committed) {
+          store.commit_transaction();
+          committed = true;
+        }
+      }
+
+      DuckDbStorageStore& store;
+      bool started{false};
+      bool committed{false};
+    };
+
+    TransactionScope transaction(*this);
+
+    std::vector<SymbolId> source_ids;
+    source_ids.reserve(includes.size());
+    for (const auto& edge : includes) {
+      source_ids.push_back(edge.source_id);
+    }
+    const auto module_ids = fetch_symbol_module_map(source_ids);
+
+    std::unordered_map<std::string, ModuleId> target_module_cache;
+    target_module_cache.reserve(includes.size());
+
     std::string insert_sql =
         "INSERT INTO includes (include_id, source_symbol_id, include_path, source_module_id, "
-        "target_module_id) VALUES (" +
-        sql_int(include_id) + ", " + sql_int(source_id) + ", " +
-        sql_quote(normalized_include_path) + ", " + sql_int(source_module_id) + ", ";
-    if (target_module_id > 0) {
-      insert_sql += sql_int(target_module_id);
-    } else {
-      insert_sql += "NULL";
+        "target_module_id) VALUES ";
+    for (std::size_t index = 0; index < includes.size(); ++index) {
+      const auto& edge = includes[index];
+      const auto source_module = module_ids.find(edge.source_id);
+      if (source_module == module_ids.end()) {
+        throw std::runtime_error("Unknown source symbol id in batched include edge");
+      }
+
+      ModuleId target_module_id = 0;
+      if (!edge.target_module_name.empty()) {
+        const auto cached = target_module_cache.find(edge.target_module_name);
+        if (cached != target_module_cache.end()) {
+          target_module_id = cached->second;
+        } else {
+          target_module_id = ensure_module(edge.target_module_name);
+          target_module_cache.emplace(edge.target_module_name, target_module_id);
+        }
+      }
+
+      if (index > 0) {
+        insert_sql += ", ";
+      }
+      insert_sql += "(" + sql_int(next_include_id()) + ", " + sql_int(edge.source_id) + ", " +
+                    sql_quote(normalize_include_path(edge.include_path)) + ", " +
+                    sql_int(source_module->second) + ", ";
+      if (target_module_id > 0) {
+        insert_sql += sql_int(target_module_id);
+      } else {
+        insert_sql += "NULL";
+      }
+      insert_sql += ")";
     }
-    insert_sql += ")";
+
     execute(insert_sql);
+    transaction.commit();
   }
 
   void write_inheritance(SymbolId derived_id, SymbolId base_id) {
+    const auto edges = std::array<InheritanceEdge, 1>{InheritanceEdge{derived_id, base_id}};
+    write_inheritances(edges);
+  }
+
+  void write_inheritances(std::span<const InheritanceEdge> inheritances) {
     ensure_ready();
-
-    (void)fetch_symbol(derived_id);
-    (void)fetch_symbol(base_id);
-    const auto derived_module_id = fetch_symbol_module_id(derived_id);
-    const auto base_module_id = fetch_symbol_module_id(base_id);
-
-    const std::string lookup_sql =
-        "SELECT inheritance_id FROM inheritance WHERE derived_symbol_id = " + sql_int(derived_id) +
-        " AND base_symbol_id = " + sql_int(base_id) + " LIMIT 1";
-    if (fetch_scalar_int(lookup_sql) > 0) {
+    if (inheritances.empty()) {
       return;
     }
 
-    const auto inheritance_id = next_inheritance_id();
-    const std::string insert_sql = "INSERT INTO inheritance (inheritance_id, derived_symbol_id, "
-                                   "base_symbol_id, derived_module_id, base_module_id) "
-                                   "VALUES (" +
-                                   sql_int(inheritance_id) + ", " + sql_int(derived_id) + ", " +
-                                   sql_int(base_id) + ", " + sql_int(derived_module_id) + ", " +
-                                   sql_int(base_module_id) + ")";
+    struct TransactionScope {
+      explicit TransactionScope(DuckDbStorageStore& store_) : store(store_) {
+        started = store.begin_transaction_if_needed();
+      }
+
+      ~TransactionScope() {
+        if (started && !committed) {
+          store.rollback_transaction();
+        }
+      }
+
+      void commit() {
+        if (started && !committed) {
+          store.commit_transaction();
+          committed = true;
+        }
+      }
+
+      DuckDbStorageStore& store;
+      bool started{false};
+      bool committed{false};
+    };
+
+    TransactionScope transaction(*this);
+
+    std::vector<SymbolId> symbol_ids;
+    symbol_ids.reserve(inheritances.size() * 2);
+    for (const auto& edge : inheritances) {
+      symbol_ids.push_back(edge.derived_id);
+      symbol_ids.push_back(edge.base_id);
+    }
+    const auto module_ids = fetch_symbol_module_map(symbol_ids);
+
+    std::string insert_sql =
+        "INSERT INTO inheritance (inheritance_id, derived_symbol_id, base_symbol_id, "
+        "derived_module_id, base_module_id) VALUES ";
+    for (std::size_t index = 0; index < inheritances.size(); ++index) {
+      const auto& edge = inheritances[index];
+      const auto derived_module = module_ids.find(edge.derived_id);
+      const auto base_module = module_ids.find(edge.base_id);
+      if (derived_module == module_ids.end() || base_module == module_ids.end()) {
+        throw std::runtime_error("Unknown symbol id in batched inheritance edge");
+      }
+
+      if (index > 0) {
+        insert_sql += ", ";
+      }
+      insert_sql += "(" + sql_int(next_inheritance_id()) + ", " + sql_int(edge.derived_id) + ", " +
+                    sql_int(edge.base_id) + ", " + sql_int(derived_module->second) + ", " +
+                    sql_int(base_module->second) + ")";
+    }
+
     execute(insert_sql);
+    transaction.commit();
   }
 
   [[nodiscard]] std::vector<StoredSymbol> callers_of(SymbolId symbol_id) const {
@@ -493,32 +716,58 @@ public:
   }
 
   void delete_file(std::string_view file_path) {
+    const auto files = std::array<std::filesystem::path, 1>{std::filesystem::path(file_path)};
+    delete_files(files);
+  }
+
+  void delete_files(std::span<const std::filesystem::path> file_paths) {
     ensure_ready();
-
-    const std::string normalized_file_path = normalize_path(std::filesystem::path(file_path));
-
-    execute("BEGIN TRANSACTION");
-    try {
-      const std::string symbol_ids =
-          "(SELECT symbol_id FROM symbols WHERE file_path = " + sql_quote(normalized_file_path) +
-          ")";
-
-      execute("DELETE FROM calls WHERE caller_symbol_id IN " + symbol_ids +
-              " OR callee_symbol_id IN " + symbol_ids);
-      execute("DELETE FROM includes WHERE source_symbol_id IN " + symbol_ids);
-      execute("DELETE FROM inheritance WHERE derived_symbol_id IN " + symbol_ids +
-              " OR base_symbol_id IN " + symbol_ids);
-      execute("DELETE FROM symbols WHERE file_path = " + sql_quote(normalized_file_path));
-      execute("COMMIT");
-    } catch (...) {
-      try {
-        execute("ROLLBACK");
-      } catch (const std::exception& rollback_error) {
-        (void)rollback_error;
-        // Best effort rollback; preserve the original failure.
-      }
-      throw;
+    if (file_paths.empty()) {
+      return;
     }
+
+    struct TransactionScope {
+      explicit TransactionScope(DuckDbStorageStore& store_) : store(store_) {
+        started = store.begin_transaction_if_needed();
+      }
+
+      ~TransactionScope() {
+        if (started && !committed) {
+          store.rollback_transaction();
+        }
+      }
+
+      void commit() {
+        if (started && !committed) {
+          store.commit_transaction();
+          committed = true;
+        }
+      }
+
+      DuckDbStorageStore& store;
+      bool started{false};
+      bool committed{false};
+    };
+
+    TransactionScope transaction(*this);
+
+    std::vector<std::string> normalized_file_paths;
+    normalized_file_paths.reserve(file_paths.size());
+    for (const auto& file_path : file_paths) {
+      normalized_file_paths.push_back(normalize_path(file_path));
+    }
+
+    const std::string symbol_ids = "(SELECT symbol_id FROM symbols WHERE file_path IN " +
+                                   join_quoted_strings(normalized_file_paths) + ")";
+
+    execute("DELETE FROM calls WHERE caller_symbol_id IN " + symbol_ids +
+            " OR callee_symbol_id IN " + symbol_ids);
+    execute("DELETE FROM includes WHERE source_symbol_id IN " + symbol_ids);
+    execute("DELETE FROM inheritance WHERE derived_symbol_id IN " + symbol_ids +
+            " OR base_symbol_id IN " + symbol_ids);
+    execute("DELETE FROM symbols WHERE file_path IN " + join_quoted_strings(normalized_file_paths));
+
+    transaction.commit();
   }
 
 private:
@@ -581,6 +830,31 @@ private:
         "SELECT module_id FROM symbols WHERE symbol_id = " + sql_int(symbol_id) + " LIMIT 1");
   }
 
+  [[nodiscard]] std::unordered_map<SymbolId, ModuleId>
+  fetch_symbol_module_map(std::span<const SymbolId> symbol_ids) const {
+    ensure_ready();
+    std::unordered_map<SymbolId, ModuleId> module_ids;
+    if (symbol_ids.empty()) {
+      return module_ids;
+    }
+
+    std::vector<SymbolId> unique_ids(symbol_ids.begin(), symbol_ids.end());
+    std::sort(unique_ids.begin(), unique_ids.end());
+    unique_ids.erase(std::unique(unique_ids.begin(), unique_ids.end()), unique_ids.end());
+
+    const auto sql =
+        "SELECT symbol_id, module_id FROM symbols WHERE symbol_id IN " + join_ids(unique_ids);
+    return with_query(connection_, sql, [&module_ids](duckdb_result& result) {
+      module_ids.reserve(duckdb_row_count(&result));
+      for (idx_t row = 0; row < duckdb_row_count(&result); ++row) {
+        const auto symbol_id = static_cast<SymbolId>(duckdb_value_int64(&result, 0, row));
+        const auto module_id = static_cast<ModuleId>(duckdb_value_int64(&result, 1, row));
+        module_ids.emplace(symbol_id, module_id);
+      }
+      return module_ids;
+    });
+  }
+
   [[nodiscard]] std::int64_t fetch_scalar_int(std::string_view sql) const {
     ensure_ready();
     return with_query(connection_, sql, [](duckdb_result& result) {
@@ -634,6 +908,15 @@ private:
   void execute(std::string_view sql) const {
     ensure_ready();
     with_query(connection_, sql, [](duckdb_result&) {});
+  }
+
+  [[nodiscard]] bool begin_transaction_if_needed() {
+    if (transaction_open_) {
+      return false;
+    }
+    execute("BEGIN TRANSACTION");
+    transaction_open_ = true;
+    return true;
   }
 
   void initialize_schema() {
@@ -704,6 +987,7 @@ private:
   duckdb_database database_{nullptr};
   duckdb_connection connection_{nullptr};
   bool ready_{false};
+  bool transaction_open_{false};
   std::int64_t next_symbol_id_{1};
   std::int64_t next_module_id_{1};
   std::int64_t next_call_id_{1};
@@ -736,14 +1020,43 @@ void DependencyGraph::ensure_ready() const {
   }
 }
 
+void DependencyGraph::begin_transaction() {
+  ensure_ready();
+  impl_->store.begin_transaction();
+}
+
+void DependencyGraph::commit_transaction() {
+  ensure_ready();
+  impl_->store.commit_transaction();
+}
+
+void DependencyGraph::rollback_transaction() noexcept {
+  if (impl_ == nullptr) {
+    return;
+  }
+
+  impl_->store.rollback_transaction();
+}
+
 [[nodiscard]] SymbolId DependencyGraph::write_symbol(const StoredSymbol& symbol) {
   ensure_ready();
   return impl_->store.write_symbol(symbol);
 }
 
+[[nodiscard]] std::vector<SymbolId>
+DependencyGraph::write_symbols(std::span<const StoredSymbol> symbols) {
+  ensure_ready();
+  return impl_->store.write_symbols(symbols);
+}
+
 void DependencyGraph::write_call(SymbolId caller_id, SymbolId callee_id) {
   ensure_ready();
   impl_->store.write_call(caller_id, callee_id);
+}
+
+void DependencyGraph::write_calls(std::span<const CallEdge> calls) {
+  ensure_ready();
+  impl_->store.write_calls(calls);
 }
 
 void DependencyGraph::write_include(SymbolId source_id, std::string_view include_path,
@@ -752,9 +1065,19 @@ void DependencyGraph::write_include(SymbolId source_id, std::string_view include
   impl_->store.write_include(source_id, include_path, target_module_name);
 }
 
+void DependencyGraph::write_includes(std::span<const IncludeEdge> includes) {
+  ensure_ready();
+  impl_->store.write_includes(includes);
+}
+
 void DependencyGraph::write_inheritance(SymbolId derived_id, SymbolId base_id) {
   ensure_ready();
   impl_->store.write_inheritance(derived_id, base_id);
+}
+
+void DependencyGraph::write_inheritances(std::span<const InheritanceEdge> inheritances) {
+  ensure_ready();
+  impl_->store.write_inheritances(inheritances);
 }
 
 [[nodiscard]] std::vector<StoredSymbol> DependencyGraph::callers_of(SymbolId symbol_id) const {
@@ -794,6 +1117,11 @@ DependencyGraph::symbol_id_for_name(std::string_view target_name) const {
 void DependencyGraph::delete_file(std::string_view file_path) {
   ensure_ready();
   impl_->store.delete_file(file_path);
+}
+
+void DependencyGraph::delete_files(std::span<const std::filesystem::path> file_paths) {
+  ensure_ready();
+  impl_->store.delete_files(file_paths);
 }
 
 Storage::Storage() = default;

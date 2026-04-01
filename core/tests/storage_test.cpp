@@ -201,4 +201,84 @@ TEST(StorageTest, DependencyGraphSupportsSymbolQueriesAndDeletion) {
                                    (workspace.root() / module_name(15)).generic_string(), 15U}));
 }
 
+TEST(StorageTest, DependencyGraphSupportsBatchMutation) {
+  TempWorkspace workspace;
+  DependencyGraph graph;
+
+  ASSERT_TRUE(graph.ready());
+
+  constexpr std::size_t kFileCount = 12;
+  std::vector<StoredSymbol> symbols;
+  std::vector<SymbolId> class_ids;
+  std::vector<SymbolId> function_ids;
+  symbols.reserve(kFileCount * 2);
+  class_ids.reserve(kFileCount);
+  function_ids.reserve(kFileCount);
+
+  for (std::size_t index = 0; index < kFileCount; ++index) {
+    const auto module_dir = workspace.root() / module_name(index);
+    const auto file_path = module_dir / ("file_" + symbol_suffix(index) + ".cpp");
+    write_fixture_file(file_path, index);
+
+    symbols.push_back(make_class_symbol(file_path, index, module_dir));
+    symbols.push_back(make_function_symbol(file_path, index, module_dir));
+  }
+
+  const auto ids = graph.write_symbols(symbols);
+  ASSERT_EQ(ids.size(), symbols.size());
+
+  for (std::size_t index = 0; index < kFileCount; ++index) {
+    class_ids.push_back(ids[index * 2]);
+    function_ids.push_back(ids[index * 2 + 1]);
+  }
+
+  std::vector<CallEdge> call_edges;
+  std::vector<IncludeEdge> include_edges;
+  std::vector<InheritanceEdge> inheritance_edges;
+  for (std::size_t index = 0; index + 1 < kFileCount; ++index) {
+    call_edges.push_back(CallEdge{function_ids[index], function_ids[index + 1]});
+    include_edges.push_back(IncludeEdge{
+        function_ids[index], "file_" + symbol_suffix(index + 1) + ".hpp", module_name(index + 1)});
+    inheritance_edges.push_back(InheritanceEdge{class_ids[index], class_ids[index + 1]});
+  }
+
+  graph.write_calls(call_edges);
+  graph.write_includes(include_edges);
+  graph.write_inheritances(inheritance_edges);
+
+  const auto callers_before = graph.callers_of(function_ids[5]);
+  EXPECT_THAT(
+      callers_before,
+      ElementsAre(StoredSymbol{(workspace.root() / module_name(4) / "file_04.cpp").generic_string(),
+                               module_name(4), (workspace.root() / module_name(4)).generic_string(),
+                               SymbolKind::Function, module_name(4) + "::process04",
+                               "void process04()", 3U, 3U}));
+
+  const auto callees_before = graph.callees_from(function_ids[4]);
+  EXPECT_THAT(
+      callees_before,
+      ElementsAre(StoredSymbol{(workspace.root() / module_name(5) / "file_05.cpp").generic_string(),
+                               module_name(5), (workspace.root() / module_name(5)).generic_string(),
+                               SymbolKind::Function, module_name(5) + "::process05",
+                               "void process05()", 3U, 3U}));
+
+  const auto dependencies_before = graph.transitive_module_dependencies(module_name(0), 11);
+  ASSERT_EQ(dependencies_before.size(), 11U);
+  EXPECT_EQ(dependencies_before.front().module_name, module_name(1));
+  EXPECT_EQ(dependencies_before.back().module_name, module_name(11));
+
+  const std::vector<std::filesystem::path> deleted_files = {workspace.root() / module_name(5) /
+                                                            "file_05.cpp"};
+  graph.delete_files(deleted_files);
+
+  EXPECT_THAT(graph.callers_of(function_ids[6]), IsEmpty());
+  EXPECT_THAT(graph.callees_from(function_ids[4]), IsEmpty());
+
+  const auto dependencies_after = graph.transitive_module_dependencies(module_name(0), 11);
+  ASSERT_EQ(dependencies_after.size(), 5U);
+  EXPECT_EQ(dependencies_after.front().module_name, module_name(1));
+  EXPECT_EQ(dependencies_after.back().module_name, module_name(5));
+  EXPECT_EQ(dependencies_after.back().depth, 5U);
+}
+
 } // namespace qodeloc::core

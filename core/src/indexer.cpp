@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <qodeloc/core/git_watcher.hpp>
 #include <qodeloc/core/indexer.hpp>
 #include <spdlog/spdlog.h>
 #include <sstream>
@@ -56,6 +57,41 @@ struct ModuleIdentity {
 struct ModuleResolutionInput {
   std::filesystem::path root_directory;
   std::filesystem::path file_path;
+};
+
+[[nodiscard]] std::vector<std::string> candidate_names(std::string_view target_name,
+                                                       std::string_view current_qualified_name);
+
+struct SymbolLookup {
+  explicit SymbolLookup(const std::vector<Indexer::IndexedSymbol>& symbols) {
+    exact.reserve(symbols.size() * 2);
+    short_names.reserve(symbols.size());
+
+    for (const auto& symbol : symbols) {
+      exact.try_emplace(symbol.symbol.qualified_name, symbol.symbol_id);
+      short_names.try_emplace(short_name(symbol.symbol.qualified_name), symbol.symbol_id);
+    }
+  }
+
+  [[nodiscard]] std::optional<SymbolId> resolve(std::string_view target_name,
+                                                std::string_view current_qualified_name) const {
+    const auto candidates = candidate_names(target_name, current_qualified_name);
+    for (const auto& candidate : candidates) {
+      if (const auto exact_match = exact.find(candidate); exact_match != exact.end()) {
+        return exact_match->second;
+      }
+    }
+
+    const auto short_match = short_names.find(std::string(target_name));
+    if (short_match != short_names.end()) {
+      return short_match->second;
+    }
+
+    return std::nullopt;
+  }
+
+  std::unordered_map<std::string, SymbolId> exact;
+  std::unordered_map<std::string, SymbolId> short_names;
 };
 
 [[nodiscard]] bool has_cmake_lists(const std::filesystem::path& directory) {
@@ -323,6 +359,15 @@ Indexer::Result Indexer::update(const std::vector<std::filesystem::path>& change
   return process_files(normalized_changed_files, existing_changed_files);
 }
 
+Indexer::Result Indexer::update_from_git(std::string_view base_ref) {
+  if (options_.root_directory.empty()) {
+    throw std::runtime_error("Indexer root directory is not configured");
+  }
+
+  GitWatcher watcher{GitWatcher::Options{options_.root_directory, std::string(base_ref)}};
+  return update(watcher.changed_files());
+}
+
 std::vector<std::filesystem::path>
 Indexer::normalize_changed_files(const std::filesystem::path& root_directory,
                                  const std::vector<std::filesystem::path>& changed_files,
@@ -372,16 +417,6 @@ Indexer::Result Indexer::process_files(const std::vector<std::filesystem::path>&
                options_.root_directory.generic_string());
   spdlog::info("Refreshing {} files and parsing {} source files", files_to_delete.size(),
                files_to_parse.size());
-
-  std::unordered_set<std::string> seen_files;
-  for (const auto& file_path : files_to_delete) {
-    const auto key = file_path.generic_string();
-    if (seen_files.insert(key).second) {
-      storage_.graph().delete_file(key);
-    }
-  }
-
-  spdlog::info("Deleted stale records for {} files", seen_files.size());
 
   std::vector<PendingSymbol> pending_symbols;
   pending_symbols.reserve(files_to_parse.size() * 4);
@@ -462,42 +497,68 @@ Indexer::Result Indexer::process_files(const std::vector<std::filesystem::path>&
                       std::make_move_iterator(batch.end()));
   }
 
-  spdlog::info("Writing {} symbols to DuckDB", pending_symbols.size());
-  result.symbols.reserve(pending_symbols.size());
-  for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
-    const auto symbol_id = storage_.graph().write_symbol(pending_symbols[index].symbol);
-    IndexedSymbol indexed_symbol;
-    indexed_symbol.symbol_id = symbol_id;
-    indexed_symbol.symbol = pending_symbols[index].symbol;
-    indexed_symbol.source_text = std::move(pending_symbols[index].source_text);
-    indexed_symbol.embedding = std::move(embeddings[index]);
-    result.symbols.push_back(std::move(indexed_symbol));
+  std::vector<StoredSymbol> stored_symbols;
+  stored_symbols.reserve(pending_symbols.size());
+  for (const auto& pending_symbol : pending_symbols) {
+    stored_symbols.push_back(pending_symbol.symbol);
   }
 
-  spdlog::info("Writing dependency edges for {} symbols", pending_symbols.size());
-  for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
-    const auto source_id = result.symbols[index].symbol_id;
-    const auto& pending_symbol = pending_symbols[index];
+  spdlog::info("Writing {} symbols and dependency edges to DuckDB", pending_symbols.size());
 
-    for (const auto& include_path : pending_symbol.dependencies.includes) {
-      storage_.graph().write_include(source_id, include_path, include_target_module(include_path));
+  storage_.graph().begin_transaction();
+  try {
+    storage_.graph().delete_files(files_to_delete);
+    spdlog::info("Deleted stale records for {} files", files_to_delete.size());
+
+    const auto symbol_ids = storage_.graph().write_symbols(stored_symbols);
+    result.symbols.reserve(pending_symbols.size());
+    for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
+      IndexedSymbol indexed_symbol;
+      indexed_symbol.symbol_id = symbol_ids[index];
+      indexed_symbol.symbol = pending_symbols[index].symbol;
+      indexed_symbol.source_text = std::move(pending_symbols[index].source_text);
+      indexed_symbol.embedding = std::move(embeddings[index]);
+      result.symbols.push_back(std::move(indexed_symbol));
     }
 
-    for (const auto& base_class : pending_symbol.dependencies.base_classes) {
-      const auto resolved =
-          resolve_symbol_id(base_class, result.symbols, pending_symbol.symbol.qualified_name);
-      if (resolved.has_value()) {
-        storage_.graph().write_inheritance(source_id, *resolved);
+    const SymbolLookup symbol_lookup{result.symbols};
+    std::vector<CallEdge> call_edges;
+    std::vector<IncludeEdge> include_edges;
+    std::vector<InheritanceEdge> inheritance_edges;
+    for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
+      const auto source_id = result.symbols[index].symbol_id;
+      const auto& pending_symbol = pending_symbols[index];
+
+      for (const auto& include_path : pending_symbol.dependencies.includes) {
+        include_edges.push_back(
+            IncludeEdge{source_id, include_path, include_target_module(include_path)});
+      }
+
+      for (const auto& base_class : pending_symbol.dependencies.base_classes) {
+        const auto resolved =
+            symbol_lookup.resolve(base_class, pending_symbol.symbol.qualified_name);
+        if (resolved.has_value()) {
+          inheritance_edges.push_back(InheritanceEdge{source_id, *resolved});
+        }
+      }
+
+      for (const auto& call : pending_symbol.dependencies.outgoing_calls) {
+        const auto resolved = symbol_lookup.resolve(call, pending_symbol.symbol.qualified_name);
+        if (resolved.has_value()) {
+          call_edges.push_back(CallEdge{source_id, *resolved});
+        }
       }
     }
 
-    for (const auto& call : pending_symbol.dependencies.outgoing_calls) {
-      const auto resolved =
-          resolve_symbol_id(call, result.symbols, pending_symbol.symbol.qualified_name);
-      if (resolved.has_value()) {
-        storage_.graph().write_call(source_id, *resolved);
-      }
-    }
+    spdlog::info("Writing {} include edges, {} inheritance edges and {} call edges",
+                 include_edges.size(), inheritance_edges.size(), call_edges.size());
+    storage_.graph().write_includes(include_edges);
+    storage_.graph().write_inheritances(inheritance_edges);
+    storage_.graph().write_calls(call_edges);
+    storage_.graph().commit_transaction();
+  } catch (...) {
+    storage_.graph().rollback_transaction();
+    throw;
   }
 
   result.stats.symbols_indexed = result.symbols.size();

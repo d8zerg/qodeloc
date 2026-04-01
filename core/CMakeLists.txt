@@ -56,6 +56,7 @@ endfunction()
 qodeloc_core_add_module(api "${QODELOC_CORE_SOURCE_DIR}/api.cpp")
 qodeloc_core_add_module(embedder "${QODELOC_CORE_SOURCE_DIR}/embedder.cpp")
 qodeloc_core_add_module(indexer "${QODELOC_CORE_SOURCE_DIR}/indexer.cpp")
+target_sources(qodeloc_indexer PRIVATE "${QODELOC_CORE_SOURCE_DIR}/git_watcher.cpp")
 target_sources(qodeloc_indexer PRIVATE "${QODELOC_CORE_SOURCE_DIR}/hierarchy.cpp")
 qodeloc_core_add_module(llm "${QODELOC_CORE_SOURCE_DIR}/llm.cpp")
 qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
@@ -178,6 +179,21 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-indexer-tests)
 
     add_test(NAME qodeloc-indexer COMMAND qodeloc-indexer-tests)
+
+    add_executable(qodeloc-git-watcher-tests
+        tests/git_watcher_test.cpp
+    )
+
+    target_compile_features(qodeloc-git-watcher-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-git-watcher-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-git-watcher-tests PRIVATE
+        qodeloc::indexer
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-git-watcher-tests)
+
+    add_test(NAME qodeloc-git-watcher COMMAND qodeloc-git-watcher-tests)
 
     add_executable(qodeloc-indexer-update-tests
         tests/indexer_update_test.cpp
