@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/git_watcher.hpp>
 #include <qodeloc/core/indexer.hpp>
 #include <spdlog/spdlog.h>
@@ -262,7 +263,8 @@ resolve_module_identity(const ModuleResolutionInput& input,
 
 } // namespace
 
-Indexer::Indexer() : Indexer(Options{}) {}
+Indexer::Indexer()
+    : Indexer(Config::current().indexer_options(), Config::current().storage_database_path(), {}) {}
 
 Indexer::Indexer(Options options, const std::filesystem::path& database_path,
                  EmbeddingBatchFn embedding_batch)
@@ -270,6 +272,9 @@ Indexer::Indexer(Options options, const std::filesystem::path& database_path,
       embedding_batch_(std::move(embedding_batch)) {
   if (options_.embedding_batch_size == 0) {
     throw std::invalid_argument("Indexer embedding batch size must be greater than zero");
+  }
+  if (options_.source_extensions.empty()) {
+    throw std::invalid_argument("Indexer source extensions must not be empty");
   }
   if (!options_.root_directory.empty()) {
     options_.root_directory = options_.root_directory.lexically_normal();
@@ -364,7 +369,9 @@ Indexer::Result Indexer::update_from_git(std::string_view base_ref) {
     throw std::runtime_error("Indexer root directory is not configured");
   }
 
-  GitWatcher watcher{GitWatcher::Options{options_.root_directory, std::string(base_ref)}};
+  const auto config = Config::current();
+  const auto resolved_base_ref = base_ref.empty() ? config.git_base_ref() : std::string(base_ref);
+  GitWatcher watcher{GitWatcher::Options{options_.root_directory, std::move(resolved_base_ref)}};
   return update(watcher.changed_files());
 }
 

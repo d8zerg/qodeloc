@@ -11,7 +11,7 @@ class GitWatcher final {
 public:
   struct Options {
     std::filesystem::path repository_root;
-    std::string base_ref{"HEAD~1"};
+    std::string base_ref;
   };
 
   explicit GitWatcher(Options options);

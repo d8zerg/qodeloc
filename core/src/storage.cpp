@@ -3,6 +3,7 @@
 #include <duckdb.h>
 #include <filesystem>
 #include <functional>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/storage.hpp>
 #include <span>
 #include <stdexcept>
@@ -1124,7 +1125,7 @@ void DependencyGraph::delete_files(std::span<const std::filesystem::path> file_p
   impl_->store.delete_files(file_paths);
 }
 
-Storage::Storage() = default;
+Storage::Storage() : graph_(Config::current().storage_database_path()) {}
 
 Storage::Storage(const std::filesystem::path& database_path) : graph_(database_path) {}
 

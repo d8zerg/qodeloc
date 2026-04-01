@@ -3,6 +3,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <initializer_list>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/retriever.hpp>
 #include <string>
 #include <string_view>
@@ -116,7 +117,7 @@ TEST(RetrieverTest, RetrievesSymbolContextFromHierarchyAndGraph) {
   };
   storage.graph().write_calls(call_edges);
 
-  Retriever::Options options;
+  auto options = Config::current().retriever_options();
   options.hierarchy.module_top_k = 1;
   options.hierarchy.symbol_top_k = 1;
   options.hierarchy.public_symbol_limit = 4;

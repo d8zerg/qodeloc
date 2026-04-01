@@ -14,9 +14,9 @@ namespace qodeloc::core {
 class HierarchicalIndex final {
 public:
   struct Options {
-    std::size_t module_top_k{3};
-    std::size_t symbol_top_k{5};
-    std::size_t public_symbol_limit{12};
+    std::size_t module_top_k{};
+    std::size_t symbol_top_k{};
+    std::size_t public_symbol_limit{};
   };
 
   struct ModuleRecord {

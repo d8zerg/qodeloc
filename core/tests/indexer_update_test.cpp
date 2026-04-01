@@ -4,6 +4,7 @@
 #include <fstream>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/indexer.hpp>
 #include <stdexcept>
 #include <string>
@@ -178,8 +179,7 @@ TEST(IndexerUpdateTest, UpdateRefreshesOnlyChangedFiles) {
   }
   ASSERT_TRUE(std::filesystem::exists(untouched_file));
 
-  Indexer::Options options;
-  options.root_directory = repo_root;
+  auto options = Config::current().indexer_options(repo_root);
   options.embedding_batch_size = 8;
   options.recursive = true;
 

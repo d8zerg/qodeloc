@@ -27,7 +27,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(duckdb CONFIG REQUIRED)
-find_package(httplib CONFIG REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(tree-sitter CONFIG REQUIRED)
 find_package(tree-sitter-cpp CONFIG REQUIRED)
@@ -54,11 +54,15 @@ function(qodeloc_core_add_module module_name)
 endfunction()
 
 qodeloc_core_add_module(api "${QODELOC_CORE_SOURCE_DIR}/api.cpp")
+qodeloc_core_add_module(config "${QODELOC_CORE_SOURCE_DIR}/config.cpp")
 qodeloc_core_add_module(embedder "${QODELOC_CORE_SOURCE_DIR}/embedder.cpp")
 qodeloc_core_add_module(indexer "${QODELOC_CORE_SOURCE_DIR}/indexer.cpp")
 target_sources(qodeloc_indexer PRIVATE "${QODELOC_CORE_SOURCE_DIR}/git_watcher.cpp")
 target_sources(qodeloc_indexer PRIVATE "${QODELOC_CORE_SOURCE_DIR}/hierarchy.cpp")
-qodeloc_core_add_module(llm "${QODELOC_CORE_SOURCE_DIR}/llm.cpp")
+qodeloc_core_add_module(llm
+    "${QODELOC_CORE_SOURCE_DIR}/llm.cpp"
+    "${QODELOC_CORE_SOURCE_DIR}/prompt_builder.cpp"
+)
 qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
 qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
 qodeloc_core_add_module(storage
@@ -70,12 +74,24 @@ target_link_libraries(qodeloc_parser PUBLIC
     tree-sitter-cpp::tree-sitter-cpp
 )
 
+target_link_libraries(qodeloc_config PUBLIC
+    nlohmann_json::nlohmann_json
+)
+
 target_link_libraries(qodeloc_embedder PUBLIC
-    httplib::httplib
+    qodeloc::config
+    Boost::system
+    nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(qodeloc_llm PUBLIC
+    qodeloc::config
+    Boost::system
     nlohmann_json::nlohmann_json
 )
 
 target_link_libraries(qodeloc_indexer PUBLIC
+    qodeloc::config
     qodeloc::embedder
     qodeloc::parser
     qodeloc::storage
@@ -83,12 +99,13 @@ target_link_libraries(qodeloc_indexer PUBLIC
 )
 
 target_link_libraries(qodeloc_retriever PUBLIC
+    qodeloc::config
     qodeloc::embedder
     qodeloc::indexer
     qodeloc::storage
 )
 
-target_link_libraries(qodeloc_storage PUBLIC duckdb::duckdb)
+target_link_libraries(qodeloc_storage PUBLIC qodeloc::config duckdb::duckdb)
 
 add_executable(qodeloc-core
     src/main.cpp
@@ -103,6 +120,7 @@ target_compile_definitions(qodeloc-core PRIVATE
 target_include_directories(qodeloc-core PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
 target_link_libraries(qodeloc-core PRIVATE
     qodeloc::api
+    qodeloc::config
     qodeloc::embedder
     qodeloc::indexer
     qodeloc::llm
@@ -167,6 +185,37 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-embedder-tests)
 
     add_test(NAME qodeloc-embedder COMMAND qodeloc-embedder-tests)
+
+    add_executable(qodeloc-llm-tests
+        tests/llm_test.cpp
+    )
+
+    target_compile_features(qodeloc-llm-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-llm-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-llm-tests PRIVATE
+        qodeloc::llm
+        Boost::system
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-llm-tests)
+
+    add_test(NAME qodeloc-llm COMMAND qodeloc-llm-tests)
+
+    add_executable(qodeloc-prompt-builder-tests
+        tests/prompt_builder_test.cpp
+    )
+
+    target_compile_features(qodeloc-prompt-builder-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-prompt-builder-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-prompt-builder-tests PRIVATE
+        qodeloc::llm
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-prompt-builder-tests)
+
+    add_test(NAME qodeloc-prompt-builder COMMAND qodeloc-prompt-builder-tests)
 
     add_executable(qodeloc-indexer-tests
         tests/indexer_test.cpp

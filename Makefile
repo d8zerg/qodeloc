@@ -1,6 +1,8 @@
 COMPOSE_FILE := infra/docker-compose.yml
 COMPOSE ?= docker compose
 PROJECT ?= qodeloc
+-include .env
+COMPOSE_ENV_FILE ?= .env
 FMT_SOURCES := $(shell find core testdata \( -type d \( -name build -o -name repos \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 LINT_SOURCES := $(shell find core \( -type d \( -name build -o -name tests -o -name repos \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 CLANG_FORMAT ?= clang-format
@@ -19,8 +21,10 @@ TESTDATA_REPO_REF ?= master
 TESTDATA_REPO_DIR ?= testdata/repos/$(TESTDATA_REPO_NAME)
 TESTDATA_REPO_DEPTH ?= 1
 TESTDATA_REPO_FETCHER ?= scripts/fetch-testdata-repo.py
-LLAMA_MODEL_DIR ?= models/downloads/llama31-8b
-LLAMA_MODEL_FILE ?= $(LLAMA_MODEL_DIR)/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+QODELOC_LLAMA_MODEL_DIR ?= models/downloads/llama31-8b
+QODELOC_LLAMA_MODEL_FILE ?= Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+LLAMA_MODEL_DIR := $(QODELOC_LLAMA_MODEL_DIR)
+LLAMA_MODEL_FILE := $(LLAMA_MODEL_DIR)/$(QODELOC_LLAMA_MODEL_FILE)
 MODEL_INSTALLER ?= scripts/install-models.py
 MODEL_NAMES := jina-code llama31-8b codestral2 qwen3-14b qwen3-30b-a3b
 MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
@@ -33,24 +37,24 @@ up:
 		echo "Missing $(LLAMA_MODEL_FILE). Run make install-models-llama31-8b first."; \
 		exit 1; \
 	fi
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
 
 down:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down --remove-orphans
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) down --remove-orphans
 
 logs:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) logs -f --tail=200
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) logs -f --tail=200
 
 reset:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down -v --remove-orphans
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) down -v --remove-orphans
 	@if [ ! -f "$(LLAMA_MODEL_FILE)" ]; then \
 		echo "Missing $(LLAMA_MODEL_FILE). Run make install-models-llama31-8b first."; \
 		exit 1; \
 	fi
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
 
 status:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) ps
+	$(COMPOSE) --env-file $(COMPOSE_ENV_FILE) -f $(COMPOSE_FILE) -p $(PROJECT) ps
 
 fmt:
 	@if [ -n "$(FMT_SOURCES)" ]; then \

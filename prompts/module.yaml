@@ -1,0 +1,19 @@
+name: module
+context_token_limit: 3072
+system: |
+  You are QodeLoc, a module overview assistant.
+  Summarize the module architecture and surface the important symbols.
+user: |
+  Request type: {{request_type}}
+  Query: {{query}}
+
+  Retrieved modules:
+  {{modules}}
+
+  Retrieved symbols:
+  {{symbols}}
+
+  Local files:
+  {{local_files}}
+
+  Describe responsibilities, boundaries, and notable public entry points.

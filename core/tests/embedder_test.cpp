@@ -1,14 +1,18 @@
 #include <atomic>
+#include <boost/asio.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/http.hpp>
 #include <cmath>
 #include <cstddef>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <httplib/httplib.h>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/embedder.hpp>
-#include <stdexcept>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -17,6 +21,11 @@
 
 namespace qodeloc::core {
 namespace {
+
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+namespace http = beast::http;
+using tcp = asio::ip::tcp;
 
 using ::testing::ElementsAre;
 
@@ -62,60 +71,20 @@ using ::testing::ElementsAre;
 
 class EmbeddingServer {
 public:
-  EmbeddingServer() {
-    server_.set_logger([](const auto&, const auto&) {});
-    server_.Post("/v1/embeddings", [this](const httplib::Request& request,
-                                          httplib::Response& response) {
-      const auto payload = nlohmann::json::parse(request.body);
-      std::vector<std::string> inputs;
-      const auto& input = payload.at("input");
-      if (input.is_string()) {
-        inputs.push_back(input.get<std::string>());
-      } else {
-        for (const auto& item : input) {
-          inputs.push_back(item.get<std::string>());
-        }
-      }
-
-      {
-        std::lock_guard lock(mutex_);
-        batch_sizes_.push_back(inputs.size());
-        request_count_.fetch_add(1, std::memory_order_relaxed);
-      }
-
-      nlohmann::json reply;
-      reply["object"] = "list";
-      reply["model"] = payload.value("model", "qodeloc-embedding");
-      reply["data"] = nlohmann::json::array();
-      for (std::size_t i = 0; i < inputs.size(); ++i) {
-        reply["data"].push_back(
-            {{"object", "embedding"}, {"index", i}, {"embedding", synthetic_embedding(inputs[i])}});
-      }
-
-      response.set_content(reply.dump(), "application/json");
-    });
-
-    port_ = server_.bind_to_any_port("127.0.0.1");
-    if (port_ <= 0) {
-      throw std::runtime_error("Failed to bind embedding test server");
-    }
-
-    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-    server_.wait_until_ready();
+  EmbeddingServer() : acceptor_(io_, tcp::endpoint(tcp::v4(), 0)) {
+    port_ = static_cast<std::uint16_t>(acceptor_.local_endpoint().port());
+    thread_ = std::thread([this] { serve(); });
   }
 
   EmbeddingServer(const EmbeddingServer&) = delete;
   EmbeddingServer& operator=(const EmbeddingServer&) = delete;
 
   ~EmbeddingServer() {
-    server_.stop();
-    if (server_thread_.joinable()) {
-      server_thread_.join();
-    }
+    stop();
   }
 
   [[nodiscard]] std::uint16_t port() const noexcept {
-    return static_cast<std::uint16_t>(port_);
+    return port_;
   }
 
   [[nodiscard]] std::size_t request_count() const noexcept {
@@ -128,18 +97,106 @@ public:
   }
 
 private:
-  httplib::Server server_;
-  std::thread server_thread_;
-  int port_{};
+  void serve() {
+    while (!stopped_.load(std::memory_order_relaxed)) {
+      tcp::socket socket{io_};
+      boost::system::error_code ec;
+      acceptor_.accept(socket, ec);
+      if (stopped_.load(std::memory_order_relaxed)) {
+        socket.close(ec);
+        break;
+      }
+      if (ec) {
+        continue;
+      }
+
+      handle(std::move(socket));
+    }
+  }
+
+  void handle(tcp::socket socket) {
+    beast::flat_buffer buffer;
+    http::request<http::string_body> request;
+    boost::system::error_code ec;
+    http::read(socket, buffer, request, ec);
+    if (ec) {
+      return;
+    }
+
+    const auto payload = nlohmann::json::parse(request.body());
+    std::vector<std::string> inputs;
+    const auto& input = payload.at("input");
+    if (input.is_string()) {
+      inputs.push_back(input.get<std::string>());
+    } else {
+      for (const auto& item : input) {
+        inputs.push_back(item.get<std::string>());
+      }
+    }
+
+    {
+      std::lock_guard lock(mutex_);
+      batch_sizes_.push_back(inputs.size());
+      request_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    nlohmann::json reply;
+    reply["object"] = "list";
+    reply["model"] = payload.value("model", "qodeloc-embedding");
+    reply["data"] = nlohmann::json::array();
+    for (std::size_t i = 0; i < inputs.size(); ++i) {
+      reply["data"].push_back(
+          {{"object", "embedding"}, {"index", i}, {"embedding", synthetic_embedding(inputs[i])}});
+    }
+
+    http::response<http::string_body> response{http::status::ok, 11};
+    response.set(http::field::server, "qodeloc-test");
+    response.set(http::field::content_type, "application/json");
+    response.keep_alive(false);
+    response.body() = reply.dump();
+    response.prepare_payload();
+    http::write(socket, response, ec);
+  }
+
+  void stop() {
+    bool expected = false;
+    if (stopped_.compare_exchange_strong(expected, true, std::memory_order_relaxed)) {
+      boost::system::error_code ec;
+      if (port_ != 0) {
+        asio::io_context wake_io;
+        tcp::resolver resolver{wake_io};
+        tcp::socket wake_socket{wake_io};
+        const auto endpoints = resolver.resolve("127.0.0.1", std::to_string(port_), ec);
+        if (!ec) {
+          asio::connect(wake_socket, endpoints, ec);
+        }
+      }
+      if (thread_.joinable()) {
+        thread_.join();
+      }
+      acceptor_.close(ec);
+      io_.stop();
+    } else if (thread_.joinable()) {
+      io_.stop();
+      thread_.join();
+    }
+  }
+
+  asio::io_context io_;
+  tcp::acceptor acceptor_;
+  std::thread thread_;
+  std::atomic<bool> stopped_{false};
+  std::atomic<std::size_t> request_count_{0};
+  std::uint16_t port_{};
   mutable std::mutex mutex_;
   std::vector<std::size_t> batch_sizes_;
-  std::atomic<std::size_t> request_count_{0};
 };
 
 } // namespace
 
 TEST(EmbedderTest, ReadyReportsConfiguredEndpoint) {
-  const Embedder embedder;
+  const auto options = Config::current().embedder_options();
+  const Embedder embedder{options};
 
   EXPECT_TRUE(embedder.ready());
   EXPECT_EQ(embedder.module_name(), "embedder");
@@ -147,11 +204,8 @@ TEST(EmbedderTest, ReadyReportsConfiguredEndpoint) {
 
 TEST(EmbedderTest, BatchesRequestsAndPreservesOrder) {
   EmbeddingServer server;
-  Embedder::Options options;
-  options.host = "127.0.0.1";
+  auto options = Config::current().embedder_options();
   options.port = server.port();
-  options.api_path = "/v1/embeddings";
-  options.model = "qodeloc-embedding";
   options.batch_size = 2;
   options.timeout = std::chrono::seconds{5};
 
@@ -174,11 +228,8 @@ TEST(EmbedderTest, BatchesRequestsAndPreservesOrder) {
 
 TEST(EmbedderTest, SingleEmbedUsesTheSameTransport) {
   EmbeddingServer server;
-  Embedder::Options options;
-  options.host = "127.0.0.1";
+  auto options = Config::current().embedder_options();
   options.port = server.port();
-  options.api_path = "/v1/embeddings";
-  options.model = "qodeloc-embedding";
   options.batch_size = 8;
   options.timeout = std::chrono::seconds{5};
 

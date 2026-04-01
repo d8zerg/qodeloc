@@ -5,8 +5,9 @@ QodeLoc is a local code-intelligence monorepo for C++ parsing, retrieval, and MC
 ## Bootstrap
 
 1. Check `ENVIRONMENT.md` for the verified toolchain.
-2. Run `make up` to start the local dev stack. Docker will pull the official `ghcr.io/ggml-org/llama.cpp:server` image and use the pre-downloaded `models/downloads/llama31-8b/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` file. If the file is missing, run `make install-models-llama31-8b` first.
-3. Run `make status` to inspect service health.
+2. Review `.env` for the shared local defaults. `core` default constructors, `make`, and Docker Compose all read the same `QODELOC_*` values.
+3. Run `make up` to start the local dev stack. Docker will pull the official `ghcr.io/ggml-org/llama.cpp:server` image and use the pre-downloaded `models/downloads/llama31-8b/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` file. If the file is missing, run `make install-models-llama31-8b` first.
+4. Run `make status` to inspect service health.
 
 ## Model Commands
 
@@ -28,6 +29,7 @@ If a repo is gated, authenticate first with `hf auth login`.
 ## Core Engine
 
 `core/` now has a working Conan 2 + CMake + Ninja bootstrap. The first target is a structured-logging stub wired against the `libparser`/`libindexer`/`libretriever`/`libembedder`/`libllm`/`libstorage`/`libapi` skeleton.
+`core` modules read their runtime defaults from `Config`, which loads `.env` from the repository root or the current process environment.
 
 Planned workflow:
 

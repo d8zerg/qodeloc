@@ -1,5 +1,6 @@
 #include <memory>
 #include <qodeloc/core/api.hpp>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/embedder.hpp>
 #include <qodeloc/core/indexer.hpp>
 #include <qodeloc/core/llm.hpp>
@@ -24,9 +25,21 @@ int main() {
   spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] [qodeloc-core] %v");
   spdlog::set_level(spdlog::level::info);
 
+  const auto config = core::Config::current();
   spdlog::info("QodeLoc Core {} booting", QODELOC_CORE_VERSION);
   spdlog::info("Project version: {}", QODELOC_CORE_PROJECT_VERSION);
   spdlog::info("Build type: {}", QODELOC_CORE_BUILD_TYPE);
+  if (!config.env_file_path().empty()) {
+    spdlog::info("Config file: {}", config.env_file_path().generic_string());
+  } else {
+    spdlog::warn("No .env file found; using built-in defaults");
+  }
+  spdlog::info("Config root: {}", config.root_directory().generic_string());
+  spdlog::info("Prompts dir: {}",
+               config.prompt_builder_options().templates_directory.generic_string());
+  spdlog::info("LLM endpoint: {}:{}", config.llm_options().host, config.llm_options().port);
+  spdlog::info("Embedder endpoint: {}:{}", config.embedder_options().host,
+               config.embedder_options().port);
   spdlog::info("Registering core modules");
 
   std::vector<std::unique_ptr<core::IModule>> modules;

@@ -1,0 +1,19 @@
+name: explain
+context_token_limit: 3072
+system: |
+  You are QodeLoc, a C++ explanation assistant.
+  Explain how the requested symbol works using only repository context.
+user: |
+  Request type: {{request_type}}
+  Query: {{query}}
+
+  Retrieved modules:
+  {{modules}}
+
+  Retrieved symbols:
+  {{symbols}}
+
+  Local files:
+  {{local_files}}
+
+  Focus on behaviour, data flow, and important dependencies.

@@ -17,6 +17,31 @@ public:
 
 The current skeleton uses `ready() == false` for the indexer, retriever, LLM, and API modules. `Embedder::ready()` returns `true` when the embeddings endpoint configuration is complete. `CppParser::ready()` is wired to the tree-sitter C++ language and returns `true` when the dependency is available. `Storage::ready()` becomes `true` when DuckDB initializes successfully.
 
+## Config Contract
+
+`qodeloc::core::Config` reads `.env` files and process environment variables, then hands the resolved settings to the module default constructors:
+
+```cpp
+class Config final {
+public:
+  static Config load(const std::filesystem::path& env_file = {});
+  static const Config& current();
+
+  Embedder::Options embedder_options() const;
+  LlmClient::Options llm_options() const;
+  PromptBuilder::Options prompt_builder_options() const;
+  HierarchicalIndex::Options hierarchy_options() const;
+  Retriever::Options retriever_options() const;
+  Indexer::Options indexer_options(const std::filesystem::path& root_directory = {}) const;
+  GitWatcher::Options git_watcher_options(
+      const std::filesystem::path& repository_root = {}) const;
+  std::filesystem::path storage_database_path() const;
+  std::string git_base_ref() const;
+};
+```
+
+`Config::current()` searches upward from the current working directory for `qodeloc/.env`, so tests and local binaries launched from `core/build/debug` still pick up the repository defaults. Relative paths such as `QODELOC_PROMPTS_DIR=prompts` are resolved against the config file directory when the file is found.
+
 ## Parser Contract
 
 `qodeloc::core::CppParser` parses a C++ file and returns a sequence of symbols with dependency metadata:
@@ -115,11 +140,11 @@ The schema uses five tables:
 
 ## Git Watcher Contract
 
-`qodeloc::core::GitWatcher` shells out to `git diff --name-only HEAD~1` for the repository root and returns the changed paths as `std::filesystem::path` values. `Indexer::update_from_git()` wraps that helper and passes the resulting paths into the existing incremental update pipeline.
+`qodeloc::core::GitWatcher` shells out to `git diff --name-only <base_ref>` for the repository root and returns the changed paths as `std::filesystem::path` values. `Indexer::update_from_git()` wraps that helper and passes the resulting paths into the existing incremental update pipeline. The default `base_ref` comes from `Config`.
 
 ## Embedder Contract
 
-`qodeloc::core::Embedder` batches snippets of source text and sends them to an OpenAI-compatible embeddings endpoint through `cpp-httplib`:
+`qodeloc::core::Embedder` batches snippets of source text and sends them to an OpenAI-compatible embeddings endpoint through Boost.Beast/Asio:
 
 ```cpp
 class Embedder final : public IModule {
@@ -145,9 +170,93 @@ public:
 
 `embed_batch()` groups texts into fixed-size batches to reduce HTTP overhead during primary indexing. The response parser accepts the standard OpenAI `data[]` payload and preserves input order by `index`.
 
+## LLM Contract
+
+`qodeloc::core::LlmClient` uses Boost.Beast to talk to the local LiteLLM router over the OpenAI-compatible chat/completions API:
+
+```cpp
+class LlmClient final : public IModule {
+public:
+  struct ChatMessage {
+    std::string role;
+    std::string content;
+  };
+
+  struct Options {
+    std::string host;
+    std::uint16_t port;
+    std::string api_path;
+    std::string model;
+    std::string api_key;
+    std::chrono::milliseconds timeout;
+    std::size_t max_retries;
+    std::chrono::milliseconds initial_backoff;
+    std::chrono::milliseconds max_backoff;
+  };
+
+  struct ChatRequest {
+    std::vector<ChatMessage> messages;
+    std::string model;
+    bool stream;
+    std::optional<float> temperature;
+    std::optional<std::size_t> max_tokens;
+    std::optional<float> top_p;
+  };
+
+  struct ChatResponse {
+    std::string content;
+    nlohmann::json raw;
+  };
+
+  using StreamCallback = std::function<bool(std::string_view)>;
+
+  ChatResponse complete(const ChatRequest& request) const;
+  ChatResponse stream(const ChatRequest& request, StreamCallback on_chunk = {}) const;
+};
+```
+
+The client retries transient transport failures and 429/5xx responses with exponential backoff. Non-streaming requests return the final assistant content, while streaming requests collect SSE `delta.content` chunks and optionally forward each chunk to the caller.
+
+## Prompt Builder Contract
+
+`qodeloc::core::PromptBuilder` renders YAML templates from `prompts/` into a two-message chat prompt. The default template directory comes from `Config` and is usually `qodeloc/prompts/`:
+
+```cpp
+class PromptBuilder {
+public:
+  enum class RequestType {
+    Search,
+    Explain,
+    Deps,
+    Callers,
+    Module,
+  };
+
+  struct LocalFile {
+    std::filesystem::path path;
+    std::string content;
+  };
+
+  struct RenderedPrompt {
+    std::string template_name;
+    std::size_t context_token_limit;
+    std::size_t token_count;
+    std::string system_text;
+    std::string user_text;
+    std::vector<LlmClient::ChatMessage> messages;
+  };
+
+  RenderedPrompt build(RequestType request_type, std::string_view query,
+                       const Retriever::Result& retrieval,
+                       std::span<const LocalFile> local_files = {}) const;
+};
+```
+
+The builder loads a small YAML subset with `name`, `context_token_limit`, `system`, and `user` keys. It substitutes retrieval summaries, local file snippets, and query metadata, then trims the result to the configured token budget.
+
 ## Indexer Contract
 
-`qodeloc::core::Indexer` walks a repository, parses C++ files, batches embedding requests, and persists the structural graph into `Storage`:
+`qodeloc::core::Indexer` walks a repository, parses C++ files, batches embedding requests, and persists the structural graph into `Storage`. Its default batching and file-extension settings come from `Config`:
 
 ```cpp
 class Indexer final : public IModule {
@@ -188,7 +297,7 @@ public:
   Result index();
   Result index(const std::filesystem::path& root_directory);
   Result update(const std::vector<std::filesystem::path>& changed_files);
-  Result update_from_git(std::string_view base_ref = "HEAD~1");
+  Result update_from_git(std::string_view base_ref = {});
 };
 ```
 
@@ -196,7 +305,7 @@ The current implementation traverses the tree recursively, skips build and VCS d
 
 ## Hierarchy Contract
 
-`qodeloc::core::HierarchicalIndex` groups indexed symbols by module, where a module is resolved from the nearest `CMakeLists.txt` when available and otherwise falls back to the first-level directory. It builds a short module summary from header-first public symbols, embeds that summary, and then ranks modules before symbols inside the selected modules.
+`qodeloc::core::HierarchicalIndex` groups indexed symbols by module, where a module is resolved from the nearest `CMakeLists.txt` when available and otherwise falls back to the first-level directory. It builds a short module summary from header-first public symbols, embeds that summary, and then ranks modules before symbols inside the selected modules. Its top-k and public-symbol limits are now config-driven.
 
 ```cpp
 class HierarchicalIndex final {
@@ -289,7 +398,7 @@ public:
 | `libindexer` | `qodeloc::core::Indexer`, `qodeloc::core::HierarchicalIndex` | Repository traversal and hierarchical module ranking |
 | `libretriever` | `qodeloc::core::Retriever` | Query-time retrieval pipeline |
 | `libembedder` | `qodeloc::core::Embedder` | Batched text-to-vector embedding requests |
-| `libllm` | `qodeloc::core::LlmClient` | LLM HTTP client and response handling |
+| `libllm` | `qodeloc::core::LlmClient`, `qodeloc::core::PromptBuilder` | OpenAI-compatible LLM client and prompt rendering |
 | `libstorage` | `qodeloc::core::Storage` | DuckDB-backed dependency graph and future vector backends |
 | `libapi` | `qodeloc::core::ApiServer` | HTTP API façade for the core engine |
 

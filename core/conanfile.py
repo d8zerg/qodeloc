@@ -16,9 +16,9 @@ class QodeLocCoreConan(ConanFile):
     }
 
     requires = (
+        "boost/1.86.0",
         "tree-sitter/0.24.3",
         "tree-sitter-cpp/0.23.4",
-        "cpp-httplib/0.20.1",
         "gtest/1.16.0",
         "spdlog/1.17.0",
         "nlohmann_json/3.11.3",

@@ -1,0 +1,19 @@
+name: deps
+context_token_limit: 3072
+system: |
+  You are QodeLoc, a dependency analysis assistant.
+  Explain direct and transitive dependencies with an implementation-first tone.
+user: |
+  Request type: {{request_type}}
+  Query: {{query}}
+
+  Retrieved modules:
+  {{modules}}
+
+  Retrieved symbols:
+  {{symbols}}
+
+  Local files:
+  {{local_files}}
+
+  Highlight include chains, callers, callees, and inheritance when relevant.

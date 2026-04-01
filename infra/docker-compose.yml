@@ -4,14 +4,14 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QODELOC_QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QODELOC_QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
     healthcheck:
       test: >-
-        bash -lc 'exec 3<>/dev/tcp/127.0.0.1/6333 && printf "GET /readyz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3 && head -n 1 <&3 | grep -q "200 OK"'
+        bash -lc 'exec 3<>/dev/tcp/127.0.0.1/${QODELOC_QDRANT_HTTP_PORT:-6333} && printf "GET /readyz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3 && head -n 1 <&3 | grep -q "200 OK"'
       interval: 10s
       timeout: 5s
       retries: 12
@@ -21,25 +21,25 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
     ports:
-      - "8080:8080"
+      - "${QODELOC_LLAMA_PORT:-8080}:8080"
     volumes:
-      - ../models/downloads/llama31-8b:/models/llama31-8b:ro
+      - ../${QODELOC_LLAMA_MODEL_DIR:-models/downloads/llama31-8b}:/models/llama31-8b:ro
     command:
       - "--host"
       - "0.0.0.0"
       - "--port"
-      - "8080"
+      - "${QODELOC_LLAMA_PORT:-8080}"
       - "-a"
       - "qodeloc-llama31-8b"
       - "--ctx-size"
       - "4096"
       - "--no-repack"
       - "--model"
-      - "/models/llama31-8b/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+      - "/models/llama31-8b/${QODELOC_LLAMA_MODEL_FILE:-Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf}"
     restart: unless-stopped
     healthcheck:
       test: >-
-        curl -fsS http://127.0.0.1:8080/health > /dev/null
+        curl -fsS http://127.0.0.1:${QODELOC_LLAMA_PORT:-8080}/health > /dev/null
       interval: 10s
       timeout: 5s
       retries: 30
@@ -48,9 +48,9 @@ services:
   litellm:
     image: docker.litellm.ai/berriai/litellm:main-latest
     ports:
-      - "4000:4000"
+      - "${QODELOC_LITELLM_PORT:-4000}:4000"
     environment:
-      OPENAI_API_KEY: sk-qodeloc-dev
+      OPENAI_API_KEY: ${QODELOC_LITELLM_MASTER_KEY:-sk-qodeloc-dev}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     command:
@@ -59,7 +59,7 @@ services:
       - "--host"
       - "0.0.0.0"
       - "--port"
-      - "4000"
+      - "${QODELOC_LITELLM_PORT:-4000}"
       - "--detailed_debug"
     depends_on:
       llama-cpp:
@@ -67,7 +67,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: >-
-        python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness').read()"
+        python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${QODELOC_LITELLM_PORT:-4000}/health/readiness').read()"
       interval: 10s
       timeout: 5s
       retries: 12

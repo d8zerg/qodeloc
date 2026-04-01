@@ -4,6 +4,7 @@
 #include <fstream>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/indexer.hpp>
 #include <string>
 #include <system_error>
@@ -117,8 +118,7 @@ public:
 )");
 
   std::vector<std::size_t> batch_sizes;
-  Indexer::Options options;
-  options.root_directory = repo_root;
+  auto options = Config::current().indexer_options(repo_root);
   options.embedding_batch_size = 2;
   options.recursive = true;
 
@@ -163,7 +163,7 @@ public:
   const auto dependencies = indexer.storage().graph().transitive_module_dependencies("app", 2);
   ASSERT_EQ(dependencies.size(), 2U);
   EXPECT_THAT(dependencies,
-              ElementsAre(ModuleDependency{"math", (repo_root / "math").generic_string(), 1U},
+              ElementsAre(ModuleDependency{"math", "math", 1U},
                           ModuleDependency{"string", "string", 2U}));
 }
 

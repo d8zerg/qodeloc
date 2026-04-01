@@ -4,6 +4,7 @@
 #include <fstream>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/git_watcher.hpp>
 #include <stdexcept>
 #include <string>
@@ -101,7 +102,7 @@ TEST(GitWatcherTest, ReturnsFilesFromPreviousCommitDiff) {
   run_git(repo_root, "add .");
   run_git(repo_root, "commit -q -m " + shell_quote("update"));
 
-  GitWatcher watcher{GitWatcher::Options{repo_root}};
+  GitWatcher watcher{Config::current().git_watcher_options(repo_root)};
   const auto changed_files = watcher.changed_files();
 
   EXPECT_THAT(changed_files, UnorderedElementsAre(std::filesystem::path("include/alpha.hpp"),

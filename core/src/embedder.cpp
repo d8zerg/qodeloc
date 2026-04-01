@@ -1,14 +1,48 @@
 #include <algorithm>
-#include <httplib/httplib.h>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http.hpp>
 #include <iterator>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/embedder.hpp>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace qodeloc::core {
+namespace {
 
-Embedder::Embedder() : Embedder(Options{}) {}
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+namespace http = beast::http;
+using tcp = asio::ip::tcp;
+
+[[nodiscard]] std::string join_host_port(std::string_view host, std::uint16_t port) {
+  std::ostringstream oss;
+  oss << host << ':' << port;
+  return oss.str();
+}
+
+void close_stream(beast::tcp_stream& connection) noexcept {
+  boost::system::error_code ec;
+  const auto shutdown_result = connection.socket().shutdown(tcp::socket::shutdown_both, ec);
+  if (shutdown_result) {
+    ec = shutdown_result;
+  }
+
+  const auto close_result = connection.socket().close(ec);
+  if (close_result) {
+    ec = close_result;
+  }
+}
+
+} // namespace
+
+Embedder::Embedder() : Embedder(Config::current().embedder_options()) {}
 
 Embedder::Embedder(Options options) : options_(std::move(options)) {
   if (options_.host.empty()) {
@@ -26,6 +60,9 @@ Embedder::Embedder(Options options) : options_(std::move(options)) {
   if (options_.batch_size == 0) {
     throw std::invalid_argument("Embedder batch size must be greater than zero");
   }
+  if (options_.timeout.count() <= 0) {
+    throw std::invalid_argument("Embedder timeout must be positive");
+  }
 }
 
 std::string_view Embedder::module_name() const noexcept {
@@ -34,7 +71,7 @@ std::string_view Embedder::module_name() const noexcept {
 
 bool Embedder::ready() const noexcept {
   return !options_.host.empty() && options_.port != 0 && !options_.api_path.empty() &&
-         !options_.model.empty() && options_.batch_size != 0;
+         !options_.model.empty() && options_.batch_size != 0 && options_.timeout.count() > 0;
 }
 
 const Embedder::Options& Embedder::options() const noexcept {
@@ -78,11 +115,6 @@ Embedder::Embeddings Embedder::embed_batch(std::span<const std::string> texts) c
 }
 
 Embedder::Embeddings Embedder::request_batch(std::span<const std::string> texts) const {
-  httplib::Client client(options_.host, options_.port);
-  client.set_connection_timeout(options_.timeout);
-  client.set_read_timeout(options_.timeout);
-  client.set_write_timeout(options_.timeout);
-
   nlohmann::json request;
   request["model"] = options_.model;
   request["encoding_format"] = "float";
@@ -95,22 +127,64 @@ Embedder::Embeddings Embedder::request_batch(std::span<const std::string> texts)
     }
   }
 
-  const auto response = client.Post(options_.api_path.c_str(), request.dump(), "application/json");
-  if (!response) {
-    std::ostringstream oss;
-    oss << "Failed to reach embedding backend at http://" << options_.host << ':' << options_.port
-        << options_.api_path;
-    throw std::runtime_error(oss.str());
+  asio::io_context io;
+  tcp::resolver resolver{io};
+  beast::tcp_stream connection{io};
+  boost::system::error_code ec;
+
+  const auto results = resolver.resolve(options_.host, std::to_string(options_.port), ec);
+  if (ec) {
+    throw std::runtime_error("Failed to resolve embedding endpoint: " + ec.message());
   }
 
-  if (response->status < 200 || response->status >= 300) {
+  connection.expires_after(options_.timeout);
+  connection.connect(results, ec);
+  if (ec) {
+    throw std::runtime_error("Failed to connect to embedding endpoint: " + ec.message());
+  }
+
+  http::request<http::string_body> http_request{http::verb::post, options_.api_path, 11};
+  http_request.set(http::field::host, join_host_port(options_.host, options_.port));
+  http_request.set(http::field::user_agent, "QodeLoc/0.1");
+  http_request.set(http::field::content_type, "application/json");
+  http_request.set(http::field::accept, "application/json");
+  http_request.set(http::field::connection, "close");
+  http_request.body() = request.dump();
+  http_request.prepare_payload();
+
+  connection.expires_after(options_.timeout);
+  http::write(connection, http_request, ec);
+  if (ec) {
+    close_stream(connection);
+    throw std::runtime_error("Failed to send embedding request: " + ec.message());
+  }
+
+  beast::flat_buffer buffer;
+  http::response_parser<http::string_body> parser;
+  parser.body_limit((std::numeric_limits<std::uint64_t>::max)());
+
+  connection.expires_after(options_.timeout);
+  http::read(connection, buffer, parser, ec);
+  if (ec) {
+    close_stream(connection);
+    throw std::runtime_error("Failed while reading embedding response: " + ec.message());
+  }
+
+  const auto& response = parser.get();
+  if (response.result_int() < 200 || response.result_int() >= 300) {
     std::ostringstream oss;
     oss << "Embedding backend at http://" << options_.host << ':' << options_.port
-        << options_.api_path << " returned HTTP " << response->status << ": " << response->body;
+        << options_.api_path << " returned HTTP " << response.result_int();
+    if (!response.body().empty()) {
+      oss << ": " << response.body();
+    }
+    close_stream(connection);
     throw std::runtime_error(oss.str());
   }
 
-  return parse_embeddings_response(response->body, texts.size());
+  auto embeddings = parse_embeddings_response(response.body(), texts.size());
+  close_stream(connection);
+  return embeddings;
 }
 
 Embedder::Embeddings Embedder::parse_embeddings_response(const std::string& body,

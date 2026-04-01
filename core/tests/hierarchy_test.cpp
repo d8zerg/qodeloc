@@ -4,6 +4,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <initializer_list>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/hierarchy.hpp>
 #include <string>
 #include <string_view>
@@ -162,7 +163,7 @@ TEST(HierarchicalIndexTest, BuildsReadableModuleSummaries) {
 }
 
 TEST(HierarchicalIndexTest, HierarchicalSearchImprovesPrecisionAtFive) {
-  HierarchicalIndex::Options options;
+  auto options = Config::current().hierarchy_options();
   options.module_top_k = 1;
   options.symbol_top_k = 5;
   options.public_symbol_limit = 12;

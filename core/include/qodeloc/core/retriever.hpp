@@ -16,9 +16,9 @@ namespace qodeloc::core {
 class Retriever final : public IModule {
 public:
   struct Options {
-    HierarchicalIndex::Options hierarchy{};
-    std::size_t related_symbol_limit{4};
-    std::size_t context_token_limit{256};
+    HierarchicalIndex::Options hierarchy;
+    std::size_t related_symbol_limit{};
+    std::size_t context_token_limit{};
   };
 
   struct SymbolContext {

@@ -19,9 +19,9 @@ class Indexer final : public IModule {
 public:
   struct Options {
     std::filesystem::path root_directory;
-    std::size_t embedding_batch_size{8};
-    bool recursive{true};
-    std::vector<std::string> source_extensions{".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx"};
+    std::size_t embedding_batch_size{};
+    bool recursive{};
+    std::vector<std::string> source_extensions;
   };
 
   struct IndexedSymbol {
@@ -59,7 +59,7 @@ public:
   [[nodiscard]] Result index();
   [[nodiscard]] Result index(const std::filesystem::path& root_directory);
   [[nodiscard]] Result update(const std::vector<std::filesystem::path>& changed_files);
-  [[nodiscard]] Result update_from_git(std::string_view base_ref = "HEAD~1");
+  [[nodiscard]] Result update_from_git(std::string_view base_ref = {});
 
 private:
   struct PendingSymbol {

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <map>
 #include <numeric>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/hierarchy.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -32,7 +33,7 @@ bool append_header(std::vector<std::string>& values, std::string value) {
 
 } // namespace
 
-HierarchicalIndex::HierarchicalIndex() : HierarchicalIndex(Options{}) {}
+HierarchicalIndex::HierarchicalIndex() : HierarchicalIndex(Config::current().hierarchy_options()) {}
 
 HierarchicalIndex::HierarchicalIndex(Options options) : options_(options) {
   if (options_.module_top_k == 0) {

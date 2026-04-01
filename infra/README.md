@@ -3,6 +3,7 @@
 This directory contains the local development stack and service configuration files.
 
 - `docker-compose.yml` starts Qdrant, LiteLLM, and the official prebuilt `ghcr.io/ggml-org/llama.cpp:server` image, which is mounted against the locally downloaded `models/downloads/llama31-8b` GGUF file
+- `../.env` provides the shared `QODELOC_*` ports, model paths, and local API keys for the dev stack
 - `litellm/config.yaml` configures the proxy model routing
 - persistent Docker volumes keep local state between runs
 

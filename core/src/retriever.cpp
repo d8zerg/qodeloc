@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <qodeloc/core/config.hpp>
 #include <qodeloc/core/retriever.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -22,7 +23,7 @@ namespace {
 
 } // namespace
 
-Retriever::Retriever() : Retriever(Options{}) {}
+Retriever::Retriever() : Retriever(Config::current().retriever_options()) {}
 
 Retriever::Retriever(Options options, QueryEmbeddingFn query_embedding)
     : options_(std::move(options)), query_embedding_(std::move(query_embedding)) {

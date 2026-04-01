@@ -18,12 +18,12 @@ public:
   using Embeddings = std::vector<Embedding>;
 
   struct Options {
-    std::string host{"127.0.0.1"};
-    std::uint16_t port{8080};
-    std::string api_path{"/v1/embeddings"};
-    std::string model{"qodeloc-embedding"};
-    std::size_t batch_size{8};
-    std::chrono::milliseconds timeout{std::chrono::seconds{30}};
+    std::string host;
+    std::uint16_t port{};
+    std::string api_path;
+    std::string model;
+    std::size_t batch_size{};
+    std::chrono::milliseconds timeout{};
   };
 
   Embedder();
