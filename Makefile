@@ -1,8 +1,8 @@
 COMPOSE_FILE := infra/docker-compose.yml
 COMPOSE ?= docker compose
 PROJECT ?= qodeloc
-FMT_SOURCES := $(shell find core testdata \( -type d -name build -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
-LINT_SOURCES := $(shell find core \( -type d \( -name build -o -name tests \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
+FMT_SOURCES := $(shell find core testdata \( -type d \( -name build -o -name repos \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
+LINT_SOURCES := $(shell find core \( -type d \( -name build -o -name tests -o -name repos \) -prune \) -o -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hpp' -o -name '*.h' \) -print 2>/dev/null)
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
 CLANG_TIDY_QUIET ?= --quiet
@@ -13,13 +13,20 @@ CORE_BUILD_TYPE ?= Debug
 CORE_CPPSTD ?= 23
 CORE_IMAGE ?= qodeloc/core:dev
 CORE_COMPOSE_FILE ?= infra/core/docker-compose.yml
+TESTDATA_REPO_NAME ?= fmt
+TESTDATA_REPO_URL ?= https://github.com/fmtlib/fmt.git
+TESTDATA_REPO_REF ?= master
+TESTDATA_REPO_DIR ?= testdata/repos/$(TESTDATA_REPO_NAME)
+TESTDATA_REPO_DEPTH ?= 1
+TESTDATA_REPO_FETCHER ?= scripts/fetch-testdata-repo.py
 LLAMA_MODEL_DIR ?= models/downloads/llama31-8b
 LLAMA_MODEL_FILE ?= $(LLAMA_MODEL_DIR)/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
 MODEL_INSTALLER ?= scripts/install-models.py
 MODEL_NAMES := jina-code llama31-8b codestral2 qwen3-14b qwen3-30b-a3b
 MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
 
-.PHONY: up down logs reset status fmt lint build test release up-core down-core install-models-all $(MODEL_TARGETS)
+.PHONY: up down logs reset status fmt lint build test release up-core down-core \
+	install-models-all download-testdata-repo download-testdata-fmt $(MODEL_TARGETS)
 
 up:
 	@if [ ! -f "$(LLAMA_MODEL_FILE)" ]; then \
@@ -74,6 +81,16 @@ lint:
 	else \
 		echo "No C++ sources found yet."; \
 	fi
+
+download-testdata-repo:
+	$(PYTHON) $(TESTDATA_REPO_FETCHER) --url "$(TESTDATA_REPO_URL)" --ref "$(TESTDATA_REPO_REF)" \
+		--dest "$(TESTDATA_REPO_DIR)" --depth "$(TESTDATA_REPO_DEPTH)"
+
+download-testdata-fmt: TESTDATA_REPO_NAME = fmt
+download-testdata-fmt: TESTDATA_REPO_URL = https://github.com/fmtlib/fmt.git
+download-testdata-fmt: TESTDATA_REPO_REF = master
+download-testdata-fmt: TESTDATA_REPO_DIR = testdata/repos/fmt
+download-testdata-fmt: download-testdata-repo
 
 build:
 	@if [ -f core/CMakeLists.txt ]; then \

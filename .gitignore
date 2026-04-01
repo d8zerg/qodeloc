@@ -80,6 +80,9 @@ models/cache/
 models/downloads/
 hf_cache/
 
+# Downloaded GitHub fixtures
+testdata/repos/
+
 # Local databases and logs
 *.db
 *.sqlite

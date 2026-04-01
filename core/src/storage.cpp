@@ -93,6 +93,24 @@ void trim_in_place(std::string& value) {
   return result;
 }
 
+[[nodiscard]] std::string escape_like_pattern(std::string_view value) {
+  std::string result;
+  result.reserve(value.size() * 2);
+  for (const char ch : value) {
+    if (ch == '\\' || ch == '%' || ch == '_') {
+      result.push_back('\\');
+    }
+    result.push_back(ch);
+  }
+  return result;
+}
+
+[[nodiscard]] std::string sql_like_suffix_pattern(std::string_view value) {
+  std::string result = "%::";
+  result += escape_like_pattern(value);
+  return result;
+}
+
 [[nodiscard]] std::string sql_int(std::int64_t value) {
   return std::to_string(value);
 }
@@ -434,6 +452,46 @@ public:
     return dependencies;
   }
 
+  [[nodiscard]] std::size_t symbol_count() const {
+    ensure_ready();
+    return static_cast<std::size_t>(fetch_scalar_int("SELECT COUNT(*) FROM symbols"));
+  }
+
+  [[nodiscard]] std::vector<StoredSymbol> symbols_for_file(std::string_view file_path) const {
+    ensure_ready();
+    const std::string normalized_file_path = normalize_path(std::filesystem::path(file_path));
+    return fetch_symbols("SELECT " + symbol_projection_sql() +
+                         " FROM symbols s JOIN modules m ON m.module_id = s.module_id WHERE "
+                         "s.file_path = " +
+                         sql_quote(normalized_file_path) +
+                         " ORDER BY s.file_path, s.qualified_name, s.start_line, s.end_line");
+  }
+
+  [[nodiscard]] std::optional<SymbolId> symbol_id_for_name(std::string_view target_name) const {
+    ensure_ready();
+
+    const auto exact_match = fetch_scalar_int(
+        "SELECT symbol_id FROM symbols WHERE qualified_name = " + sql_quote(target_name) +
+        " LIMIT 1");
+    if (exact_match > 0) {
+      return exact_match;
+    }
+
+    if (target_name.find("::") == std::string_view::npos) {
+      const auto suffix_match =
+          fetch_scalar_int("SELECT symbol_id FROM symbols WHERE qualified_name LIKE " +
+                           sql_quote(sql_like_suffix_pattern(target_name)) +
+                           " ESCAPE '\\' "
+                           "ORDER BY LENGTH(qualified_name), "
+                           "qualified_name LIMIT 1");
+      if (suffix_match > 0) {
+        return suffix_match;
+      }
+    }
+
+    return std::nullopt;
+  }
+
   void delete_file(std::string_view file_path) {
     ensure_ready();
 
@@ -714,6 +772,23 @@ DependencyGraph::transitive_module_dependencies(std::string_view module_name,
                                                 std::size_t max_depth) const {
   ensure_ready();
   return impl_->store.transitive_module_dependencies(module_name, max_depth);
+}
+
+[[nodiscard]] std::size_t DependencyGraph::symbol_count() const {
+  ensure_ready();
+  return impl_->store.symbol_count();
+}
+
+[[nodiscard]] std::vector<StoredSymbol>
+DependencyGraph::symbols_for_file(std::string_view file_path) const {
+  ensure_ready();
+  return impl_->store.symbols_for_file(file_path);
+}
+
+[[nodiscard]] std::optional<SymbolId>
+DependencyGraph::symbol_id_for_name(std::string_view target_name) const {
+  ensure_ready();
+  return impl_->store.symbol_id_for_name(target_name);
 }
 
 void DependencyGraph::delete_file(std::string_view file_path) {

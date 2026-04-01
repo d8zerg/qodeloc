@@ -179,6 +179,24 @@ if(BUILD_TESTING)
 
     add_test(NAME qodeloc-indexer COMMAND qodeloc-indexer-tests)
 
+    add_executable(qodeloc-indexer-update-tests
+        tests/indexer_update_test.cpp
+    )
+
+    target_compile_features(qodeloc-indexer-update-tests PRIVATE cxx_std_23)
+    target_compile_definitions(qodeloc-indexer-update-tests PRIVATE
+        QODELOC_TEST_REPOS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../testdata/repos"
+    )
+    target_include_directories(qodeloc-indexer-update-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-indexer-update-tests PRIVATE
+        qodeloc::indexer
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-indexer-update-tests)
+
+    add_test(NAME qodeloc-indexer-update COMMAND qodeloc-indexer-update-tests)
+
     add_executable(qodeloc-hierarchy-tests
         tests/hierarchy_test.cpp
     )

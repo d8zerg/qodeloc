@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <qodeloc/core/module.hpp>
 #include <qodeloc/core/parser.hpp>
@@ -89,6 +90,9 @@ public:
   [[nodiscard]] std::vector<StoredSymbol> callees_from(SymbolId symbol_id) const;
   [[nodiscard]] std::vector<ModuleDependency>
   transitive_module_dependencies(std::string_view module_name, std::size_t max_depth) const;
+  [[nodiscard]] std::size_t symbol_count() const;
+  [[nodiscard]] std::vector<StoredSymbol> symbols_for_file(std::string_view file_path) const;
+  [[nodiscard]] std::optional<SymbolId> symbol_id_for_name(std::string_view target_name) const;
 
   void delete_file(std::string_view file_path);
 

@@ -291,27 +291,109 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
                              normalized_root.generic_string());
   }
 
-  const auto started_at = Clock::now();
   const auto source_files =
       collect_source_files(normalized_root, options_.source_extensions, options_.recursive);
+  return process_files(source_files, source_files);
+}
 
+Indexer::Result Indexer::update(const std::vector<std::filesystem::path>& changed_files) {
+  if (options_.root_directory.empty()) {
+    throw std::runtime_error("Indexer root directory is not configured");
+  }
+
+  std::error_code ec;
+  const auto normalized_root = options_.root_directory.lexically_normal();
+  if (!std::filesystem::exists(normalized_root, ec) ||
+      !std::filesystem::is_directory(normalized_root, ec)) {
+    throw std::runtime_error("Indexer root directory does not exist or is not a directory: " +
+                             normalized_root.generic_string());
+  }
+
+  const auto normalized_changed_files =
+      normalize_changed_files(normalized_root, changed_files, options_.source_extensions);
+  std::vector<std::filesystem::path> existing_changed_files;
+  existing_changed_files.reserve(normalized_changed_files.size());
+
+  for (const auto& file_path : normalized_changed_files) {
+    if (std::filesystem::exists(file_path, ec) && std::filesystem::is_regular_file(file_path, ec)) {
+      existing_changed_files.push_back(file_path);
+    }
+  }
+
+  return process_files(normalized_changed_files, existing_changed_files);
+}
+
+std::vector<std::filesystem::path>
+Indexer::normalize_changed_files(const std::filesystem::path& root_directory,
+                                 const std::vector<std::filesystem::path>& changed_files,
+                                 const std::vector<std::string>& extensions) {
+  std::vector<std::filesystem::path> files;
+  std::unordered_set<std::string> seen;
+  files.reserve(changed_files.size());
+
+  for (const auto& file_path : changed_files) {
+    if (file_path.empty()) {
+      continue;
+    }
+
+    std::filesystem::path normalized_path;
+    if (file_path.is_absolute()) {
+      normalized_path = file_path.lexically_normal();
+    } else {
+      normalized_path = (root_directory / file_path).lexically_normal();
+    }
+
+    if (!has_extension(normalized_path, extensions)) {
+      continue;
+    }
+
+    const auto key = normalized_path.generic_string();
+    if (seen.insert(key).second) {
+      files.push_back(std::move(normalized_path));
+    }
+  }
+
+  std::sort(files.begin(), files.end());
+  return files;
+}
+
+Indexer::Result Indexer::process_files(const std::vector<std::filesystem::path>& files_to_delete,
+                                       const std::vector<std::filesystem::path>& files_to_parse) {
   Result result;
-  result.stats.files_scanned = source_files.size();
-  result.symbols.reserve(source_files.size() * 4);
-  spdlog::info("Indexing {} source files under {}", source_files.size(),
-               normalized_root.generic_string());
+  result.stats.files_scanned = files_to_delete.size();
+
+  if (files_to_delete.empty() && files_to_parse.empty()) {
+    return result;
+  }
+
+  const auto started_at = Clock::now();
+  result.symbols.reserve(files_to_parse.size() * 4);
+  spdlog::info("Indexing {} source files under {}", files_to_delete.size(),
+               options_.root_directory.generic_string());
+  spdlog::info("Refreshing {} files and parsing {} source files", files_to_delete.size(),
+               files_to_parse.size());
+
+  std::unordered_set<std::string> seen_files;
+  for (const auto& file_path : files_to_delete) {
+    const auto key = file_path.generic_string();
+    if (seen_files.insert(key).second) {
+      storage_.graph().delete_file(key);
+    }
+  }
+
+  spdlog::info("Deleted stale records for {} files", seen_files.size());
 
   std::vector<PendingSymbol> pending_symbols;
-  pending_symbols.reserve(source_files.size() * 4);
+  pending_symbols.reserve(files_to_parse.size() * 4);
   std::unordered_map<std::string, ModuleIdentity> module_cache;
 
-  for (std::size_t file_index = 0; file_index < source_files.size(); ++file_index) {
-    const auto& file_path = source_files[file_index];
+  for (std::size_t file_index = 0; file_index < files_to_parse.size(); ++file_index) {
+    const auto& file_path = files_to_parse[file_index];
     try {
       const auto lines = read_file_lines(file_path);
       const auto symbols = CppParser{}.parse_file(file_path);
-      const auto module_identity =
-          resolve_module_identity(ModuleResolutionInput{normalized_root, file_path}, module_cache);
+      const auto module_identity = resolve_module_identity(
+          ModuleResolutionInput{options_.root_directory, file_path}, module_cache);
       const auto& module_name = module_identity.name;
       const auto& module_path = module_identity.path;
 
@@ -343,23 +425,9 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started_at);
     spdlog::info("[{}/{}] {} files={} symbols={} errors={} elapsed={} eta={}", file_index + 1,
-                 source_files.size(), file_path.generic_string(), result.stats.files_indexed,
+                 files_to_parse.size(), file_path.generic_string(), result.stats.files_indexed,
                  pending_symbols.size(), result.stats.parse_errors, elapsed.count(),
-                 eta_text(elapsed, file_index + 1, source_files.size()));
-  }
-
-  std::vector<std::filesystem::path> files_to_refresh;
-  files_to_refresh.reserve(source_files.size());
-  std::unordered_set<std::string> seen_files;
-  for (const auto& pending_symbol : pending_symbols) {
-    const auto file_path = pending_symbol.file_path.generic_string();
-    if (seen_files.insert(file_path).second) {
-      files_to_refresh.push_back(pending_symbol.file_path);
-    }
-  }
-
-  for (const auto& file_path : files_to_refresh) {
-    storage_.graph().delete_file(file_path.generic_string());
+                 eta_text(elapsed, file_index + 1, files_to_parse.size()));
   }
 
   std::vector<std::string> embedding_inputs;
@@ -367,6 +435,9 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
   for (const auto& pending_symbol : pending_symbols) {
     embedding_inputs.push_back(pending_symbol.source_text);
   }
+
+  spdlog::info("Embedding {} symbol snippets in batches of {}", embedding_inputs.size(),
+               options_.embedding_batch_size);
 
   std::vector<Embedder::Embedding> embeddings;
   embeddings.reserve(pending_symbols.size());
@@ -391,6 +462,7 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
                       std::make_move_iterator(batch.end()));
   }
 
+  spdlog::info("Writing {} symbols to DuckDB", pending_symbols.size());
   result.symbols.reserve(pending_symbols.size());
   for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
     const auto symbol_id = storage_.graph().write_symbol(pending_symbols[index].symbol);
@@ -402,6 +474,7 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
     result.symbols.push_back(std::move(indexed_symbol));
   }
 
+  spdlog::info("Writing dependency edges for {} symbols", pending_symbols.size());
   for (std::size_t index = 0; index < pending_symbols.size(); ++index) {
     const auto source_id = result.symbols[index].symbol_id;
     const auto& pending_symbol = pending_symbols[index];
@@ -481,7 +554,7 @@ Indexer::collect_source_files(const std::filesystem::path& root_directory,
 std::optional<SymbolId>
 Indexer::resolve_symbol_id(std::string_view target_name,
                            const std::vector<IndexedSymbol>& indexed_symbols,
-                           std::string_view current_qualified_name) {
+                           std::string_view current_qualified_name) const {
   const auto candidates = candidate_names(target_name, current_qualified_name);
 
   for (const auto& candidate : candidates) {

@@ -58,6 +58,7 @@ public:
   [[nodiscard]] const Storage& storage() const noexcept;
   [[nodiscard]] Result index();
   [[nodiscard]] Result index(const std::filesystem::path& root_directory);
+  [[nodiscard]] Result update(const std::vector<std::filesystem::path>& changed_files);
 
 private:
   struct PendingSymbol {
@@ -74,10 +75,16 @@ private:
   [[nodiscard]] static std::vector<std::filesystem::path>
   collect_source_files(const std::filesystem::path& root_directory,
                        const std::vector<std::string>& extensions, bool recursive);
-  [[nodiscard]] static std::optional<SymbolId>
+  [[nodiscard]] static std::vector<std::filesystem::path>
+  normalize_changed_files(const std::filesystem::path& root_directory,
+                          const std::vector<std::filesystem::path>& changed_files,
+                          const std::vector<std::string>& extensions);
+  [[nodiscard]] std::optional<SymbolId>
   resolve_symbol_id(std::string_view target_name, const std::vector<IndexedSymbol>& indexed_symbols,
-                    std::string_view current_qualified_name);
+                    std::string_view current_qualified_name) const;
   [[nodiscard]] Embedder::Embeddings request_embeddings(std::span<const std::string> texts) const;
+  [[nodiscard]] Result process_files(const std::vector<std::filesystem::path>& files_to_delete,
+                                     const std::vector<std::filesystem::path>& files_to_parse);
 
   Options options_;
   Storage storage_;

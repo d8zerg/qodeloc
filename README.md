@@ -67,3 +67,4 @@ Core-specific make targets are available alongside that scaffold:
 - `make status` - print compose health and container state
 - `make fmt` - run clang-format over C++ sources
 - `make lint` - run clang-tidy over C++ sources when compile commands are available
+- `make download-testdata-repo` - clone or refresh the default public fixture repo (`fmtlib/fmt`) under `testdata/repos/fmt/`
