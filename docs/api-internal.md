@@ -1,6 +1,6 @@
 # QodeLoc Internal API
 
-Phase 1.3-1.5 keep the C++ core module boundaries from phase 1.2 and make the parser and storage contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
+Phase 1.3-1.7 keep the C++ core module boundaries from phase 1.2 and make the parser, storage, and embedding contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
 
 ## Common Contract
 
@@ -15,7 +15,7 @@ public:
 };
 ```
 
-The current skeleton uses `ready() == false` for the indexer, retriever, embedder, LLM, and API modules. `CppParser::ready()` is wired to the tree-sitter C++ language and returns `true` when the dependency is available. `Storage::ready()` becomes `true` when DuckDB initializes successfully.
+The current skeleton uses `ready() == false` for the indexer, retriever, LLM, and API modules. `Embedder::ready()` returns `true` when the embeddings endpoint configuration is complete. `CppParser::ready()` is wired to the tree-sitter C++ language and returns `true` when the dependency is available. `Storage::ready()` becomes `true` when DuckDB initializes successfully.
 
 ## Parser Contract
 
@@ -103,6 +103,34 @@ The schema uses five tables:
 
 `Storage` is the thin `IModule` wrapper around `DependencyGraph`, so later phases can depend on the same storage layer without reworking the core bootstrap.
 
+## Embedder Contract
+
+`qodeloc::core::Embedder` batches snippets of source text and sends them to an OpenAI-compatible embeddings endpoint through `cpp-httplib`:
+
+```cpp
+class Embedder final : public IModule {
+public:
+  using Embedding = std::vector<float>;
+  using Embeddings = std::vector<Embedding>;
+
+  struct Options {
+    std::string host;
+    std::uint16_t port;
+    std::string api_path;
+    std::string model;
+    std::size_t batch_size;
+    std::chrono::milliseconds timeout;
+  };
+
+  Embedder();
+  explicit Embedder(Options options);
+  Embedding embed(std::string_view text) const;
+  Embeddings embed_batch(std::span<const std::string> texts) const;
+};
+```
+
+`embed_batch()` groups texts into fixed-size batches to reduce HTTP overhead during primary indexing. The response parser accepts the standard OpenAI `data[]` payload and preserves input order by `index`.
+
 ## Module Map
 
 | Library | Public class | Responsibility |
@@ -110,7 +138,7 @@ The schema uses five tables:
 | `libparser` | `qodeloc::core::CppParser` | C++ source parsing and symbol extraction |
 | `libindexer` | `qodeloc::core::Indexer` | Repository traversal and index orchestration |
 | `libretriever` | `qodeloc::core::Retriever` | Query-time retrieval pipeline |
-| `libembedder` | `qodeloc::core::Embedder` | Text-to-vector embedding requests |
+| `libembedder` | `qodeloc::core::Embedder` | Batched text-to-vector embedding requests |
 | `libllm` | `qodeloc::core::LlmClient` | LLM HTTP client and response handling |
 | `libstorage` | `qodeloc::core::Storage` | DuckDB-backed dependency graph and future vector backends |
 | `libapi` | `qodeloc::core::ApiServer` | HTTP API façade for the core engine |

@@ -222,7 +222,8 @@ public:
   [[nodiscard]] SymbolId write_symbol(const StoredSymbol& symbol) {
     ensure_ready();
 
-    const std::string normalized_file_path = normalize_path(std::filesystem::path(symbol.file_path));
+    const std::string normalized_file_path =
+        normalize_path(std::filesystem::path(symbol.file_path));
     const std::string normalized_module_name = normalize_module_name(
         symbol.module_name,
         std::filesystem::path(normalized_file_path).parent_path().generic_string());
@@ -270,11 +271,11 @@ public:
     }
 
     const auto call_id = next_call_id();
-    const std::string insert_sql = "INSERT INTO calls (call_id, caller_symbol_id, callee_symbol_id, "
-                                   "caller_module_id, callee_module_id) VALUES (" +
-                                   sql_int(call_id) + ", " + sql_int(caller_id) + ", " +
-                                   sql_int(callee_id) + ", " + sql_int(caller_module_id) + ", " +
-                                   sql_int(callee_module_id) + ")";
+    const std::string insert_sql =
+        "INSERT INTO calls (call_id, caller_symbol_id, callee_symbol_id, "
+        "caller_module_id, callee_module_id) VALUES (" +
+        sql_int(call_id) + ", " + sql_int(caller_id) + ", " + sql_int(callee_id) + ", " +
+        sql_int(caller_module_id) + ", " + sql_int(callee_module_id) + ")";
     execute(insert_sql);
   }
 
@@ -310,8 +311,8 @@ public:
     std::string insert_sql =
         "INSERT INTO includes (include_id, source_symbol_id, include_path, source_module_id, "
         "target_module_id) VALUES (" +
-        sql_int(include_id) + ", " + sql_int(source_id) + ", " + sql_quote(normalized_include_path) +
-        ", " + sql_int(source_module_id) + ", ";
+        sql_int(include_id) + ", " + sql_int(source_id) + ", " +
+        sql_quote(normalized_include_path) + ", " + sql_int(source_module_id) + ", ";
     if (target_module_id > 0) {
       insert_sql += sql_int(target_module_id);
     } else {
@@ -330,8 +331,8 @@ public:
     const auto base_module_id = fetch_symbol_module_id(base_id);
 
     const std::string lookup_sql =
-        "SELECT inheritance_id FROM inheritance WHERE derived_symbol_id = " +
-        sql_int(derived_id) + " AND base_symbol_id = " + sql_int(base_id) + " LIMIT 1";
+        "SELECT inheritance_id FROM inheritance WHERE derived_symbol_id = " + sql_int(derived_id) +
+        " AND base_symbol_id = " + sql_int(base_id) + " LIMIT 1";
     if (fetch_scalar_int(lookup_sql) > 0) {
       return;
     }
@@ -441,7 +442,8 @@ public:
     execute("BEGIN TRANSACTION");
     try {
       const std::string symbol_ids =
-          "(SELECT symbol_id FROM symbols WHERE file_path = " + sql_quote(normalized_file_path) + ")";
+          "(SELECT symbol_id FROM symbols WHERE file_path = " + sql_quote(normalized_file_path) +
+          ")";
 
       execute("DELETE FROM calls WHERE caller_symbol_id IN " + symbol_ids +
               " OR callee_symbol_id IN " + symbol_ids);
@@ -517,8 +519,8 @@ private:
   }
 
   [[nodiscard]] ModuleId fetch_symbol_module_id(SymbolId symbol_id) const {
-    return fetch_scalar_int("SELECT module_id FROM symbols WHERE symbol_id = " + sql_int(symbol_id) +
-                            " LIMIT 1");
+    return fetch_scalar_int(
+        "SELECT module_id FROM symbols WHERE symbol_id = " + sql_int(symbol_id) + " LIMIT 1");
   }
 
   [[nodiscard]] std::int64_t fetch_scalar_int(std::string_view sql) const {
@@ -543,7 +545,8 @@ private:
     });
   }
 
-  [[nodiscard]] std::vector<ModuleDependency> fetch_module_dependencies(std::string_view sql) const {
+  [[nodiscard]] std::vector<ModuleDependency>
+  fetch_module_dependencies(std::string_view sql) const {
     ensure_ready();
     return with_query(connection_, sql, [](duckdb_result& result) {
       std::vector<ModuleDependency> rows;

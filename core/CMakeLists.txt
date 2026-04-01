@@ -27,6 +27,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(duckdb CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(tree-sitter CONFIG REQUIRED)
 find_package(tree-sitter-cpp CONFIG REQUIRED)
 
@@ -64,6 +66,11 @@ qodeloc_core_add_module(storage
 target_link_libraries(qodeloc_parser PUBLIC
     tree-sitter::tree-sitter
     tree-sitter-cpp::tree-sitter-cpp
+)
+
+target_link_libraries(qodeloc_embedder PUBLIC
+    httplib::httplib
+    nlohmann_json::nlohmann_json
 )
 
 target_link_libraries(qodeloc_storage PUBLIC duckdb::duckdb)
@@ -130,4 +137,19 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-storage-tests)
 
     add_test(NAME qodeloc-storage COMMAND qodeloc-storage-tests)
+
+    add_executable(qodeloc-embedder-tests
+        tests/embedder_test.cpp
+    )
+
+    target_compile_features(qodeloc-embedder-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-embedder-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-embedder-tests PRIVATE
+        qodeloc::embedder
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-embedder-tests)
+
+    add_test(NAME qodeloc-embedder COMMAND qodeloc-embedder-tests)
 endif()

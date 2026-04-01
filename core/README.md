@@ -28,7 +28,7 @@ Phase 1.2 splits the core into static libraries:
 - `libstorage`
 - `libapi`
 
-The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
+The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
 
 ## Presets
 
