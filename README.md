@@ -5,7 +5,7 @@ QodeLoc is a local code-intelligence monorepo for C++ parsing, retrieval, and MC
 ## Bootstrap
 
 1. Check `ENVIRONMENT.md` for the verified toolchain.
-2. Run `make up` to start the local dev stack. Docker will build the Ubuntu-based llama.cpp server image on first run and download the TinyLlama test model into the cache volume.
+2. Run `make up` to start the local dev stack. Docker will pull the official `ghcr.io/ggml-org/llama.cpp:server` image and use the pre-downloaded `models/downloads/llama31-8b/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` file. If the file is missing, run `make install-models-llama31-8b` first.
 3. Run `make status` to inspect service health.
 
 ## Model Commands
@@ -15,13 +15,13 @@ The model installer resolves the Hugging Face CLI from your local `pipx` install
 Use these targets to install one model at a time:
 
 - `make install-models-jina-code` - download the embedding model used for code search
-- `make install-models-llama31-8b` - download the lightweight 8B generation model
+- `make install-models-llama31-8b` - download the lightweight 8B generation model used by `make up`
 - `make install-models-codestral2` - download the Codestral GGUF slot
 - `make install-models-qwen3-14b` - download the 14B Qwen GGUF model
 - `make install-models-qwen3-30b-a3b` - download the 30B-A3B Qwen GGUF model
 - `make install-models-all` - download the full catalog
 
-The CLI shows download progress while each model is fetched. Artifacts land under `models/downloads/<short-name>/`, and the local cache stays in ignored paths under `models/cache/`.
+The CLI shows download progress while each model is fetched. Artifacts land under `models/downloads/<short-name>/`, and the local cache stays in ignored paths under `models/cache/`. The default dev stack reuses the downloaded `llama31-8b` artifact directly and does not fetch it again inside Docker.
 
 If a repo is gated, authenticate first with `hf auth login`.
 
@@ -60,7 +60,7 @@ Core-specific make targets are available alongside that scaffold:
 
 ## Dev Commands
 
-- `make up` - start Qdrant, LiteLLM, and the local Ubuntu-based llama.cpp server
+- `make up` - start Qdrant, LiteLLM, and the official prebuilt llama.cpp server image using the local `llama31-8b` model file
 - `make logs` - stream container logs
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes

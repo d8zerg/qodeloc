@@ -13,6 +13,8 @@ CORE_BUILD_TYPE ?= Debug
 CORE_CPPSTD ?= 23
 CORE_IMAGE ?= qodeloc/core:dev
 CORE_COMPOSE_FILE ?= infra/core/docker-compose.yml
+LLAMA_MODEL_DIR ?= models/downloads/llama31-8b
+LLAMA_MODEL_FILE ?= $(LLAMA_MODEL_DIR)/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
 MODEL_INSTALLER ?= scripts/install-models.py
 MODEL_NAMES := jina-code llama31-8b codestral2 qwen3-14b qwen3-30b-a3b
 MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
@@ -20,7 +22,11 @@ MODEL_TARGETS := $(addprefix install-models-,$(MODEL_NAMES))
 .PHONY: up down logs reset status fmt lint build test release up-core down-core install-models-all $(MODEL_TARGETS)
 
 up:
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --build --wait --remove-orphans
+	@if [ ! -f "$(LLAMA_MODEL_FILE)" ]; then \
+		echo "Missing $(LLAMA_MODEL_FILE). Run make install-models-llama31-8b first."; \
+		exit 1; \
+	fi
+	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
 
 down:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down --remove-orphans
@@ -30,7 +36,11 @@ logs:
 
 reset:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) down -v --remove-orphans
-	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --build --wait --remove-orphans
+	@if [ ! -f "$(LLAMA_MODEL_FILE)" ]; then \
+		echo "Missing $(LLAMA_MODEL_FILE). Run make install-models-llama31-8b first."; \
+		exit 1; \
+	fi
+	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) up -d --wait --remove-orphans
 
 status:
 	$(COMPOSE) -f $(COMPOSE_FILE) -p $(PROJECT) ps
