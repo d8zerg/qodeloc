@@ -1,6 +1,7 @@
 # QodeLoc AI-assistant
 
-QodeLoc is a local code-intelligence monorepo for C++ parsing, retrieval, and MCP integration.
+QodeLoc is an air-gapped AI code assistant for teams that cannot send source code to the cloud. It runs entirely on your own infrastructure and provides semantic search, dependency navigation, and natural-language explanations of large C++ codebases - all from within your IDE.
+Developers connect through Continue.dev in VSCode or CLion. The system indexes the repository using AST-level parsing via tree-sitter, stores symbol vectors in Qdrant, and maintains a dependency graph in DuckDB. Queries are answered by a locally running language model through llama.cpp, routed through LiteLLM. No code, query, or response leaves the network perimeter.
 
 ## Bootstrap
 
