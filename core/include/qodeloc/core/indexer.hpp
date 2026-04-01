@@ -54,6 +54,10 @@ public:
   [[nodiscard]] std::string_view module_name() const noexcept override;
   [[nodiscard]] bool ready() const noexcept override;
   [[nodiscard]] const Options& options() const noexcept;
+  [[nodiscard]] const std::vector<IndexedSymbol>& symbols() const noexcept;
+  [[nodiscard]] const Stats& last_stats() const noexcept;
+  [[nodiscard]] std::chrono::system_clock::time_point last_indexed_at() const noexcept;
+  [[nodiscard]] std::string_view last_operation() const noexcept;
   [[nodiscard]] Storage& storage() noexcept;
   [[nodiscard]] const Storage& storage() const noexcept;
   [[nodiscard]] Result index();
@@ -84,6 +88,7 @@ private:
   resolve_symbol_id(std::string_view target_name, const std::vector<IndexedSymbol>& indexed_symbols,
                     std::string_view current_qualified_name) const;
   [[nodiscard]] Embedder::Embeddings request_embeddings(std::span<const std::string> texts) const;
+  void record_result(const Result& result, std::string_view operation);
   [[nodiscard]] Result process_files(const std::vector<std::filesystem::path>& files_to_delete,
                                      const std::vector<std::filesystem::path>& files_to_parse);
 
@@ -91,6 +96,10 @@ private:
   Storage storage_;
   Embedder embedder_;
   EmbeddingBatchFn embedding_batch_;
+  std::vector<IndexedSymbol> symbols_;
+  Stats last_stats_;
+  std::chrono::system_clock::time_point last_indexed_at_{};
+  std::string last_operation_;
 };
 
 } // namespace qodeloc::core

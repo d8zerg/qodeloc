@@ -32,6 +32,7 @@ public:
   PromptBuilder::Options prompt_builder_options() const;
   HierarchicalIndex::Options hierarchy_options() const;
   Retriever::Options retriever_options() const;
+  ApiServer::Options api_options() const;
   Indexer::Options indexer_options(const std::filesystem::path& root_directory = {}) const;
   GitWatcher::Options git_watcher_options(
       const std::filesystem::path& repository_root = {}) const;
@@ -389,6 +390,49 @@ public:
 ```
 
 `Retriever::build()` loads the current corpus, `Retriever::attach_storage()` connects the DuckDB graph, and `retrieve()` embeds the query, performs hierarchical ranking, then appends a short graph context. The token budget is enforced approximately by whitespace token counting so the assembled context stays bounded before the later prompt-building stage.
+
+## API Contract
+
+`qodeloc::core::ApiServer` exposes the HTTP façade for the core engine. It uses Boost.Beast, binds to the configured host and port, and serves JSON endpoints for search, explanations, dependencies, status, and incremental reindexing.
+
+```cpp
+class ApiServer final : public IModule {
+public:
+  struct Options {
+    std::string host;
+    std::uint16_t port;
+    std::size_t max_body_bytes;
+    std::chrono::milliseconds request_timeout;
+  };
+
+  struct Status {
+    bool running;
+    std::string host;
+    std::uint16_t port;
+    std::filesystem::path root_directory;
+    std::size_t symbol_count;
+    std::size_t module_count;
+    std::size_t indexed_files;
+    Indexer::Stats last_stats;
+    std::chrono::system_clock::time_point last_indexed_at;
+    std::string last_operation;
+    bool retriever_ready;
+    bool llm_ready;
+  };
+
+  void attach_indexer(Indexer& indexer) noexcept;
+  void attach_retriever(Retriever& retriever) noexcept;
+  void attach_prompt_builder(PromptBuilder& prompt_builder) noexcept;
+  void attach_llm_client(LlmClient& llm_client) noexcept;
+  void attach_module_embedding_batch(Retriever::ModuleEmbeddingBatchFn module_embedding_batch);
+
+  void start();
+  void stop() noexcept;
+  Status status() const;
+};
+```
+
+The server answers `POST /search`, `POST /explain`, `POST /deps`, `POST /callers`, `POST /module`, and `POST /reindex`, plus `GET /status`. Each route consumes and emits JSON. The `reindex` handler accepts either an explicit `changed_files` list or falls back to `git diff` through `GitWatcher`.
 
 ## Module Map
 

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <qodeloc/core/api.hpp>
 #include <qodeloc/core/embedder.hpp>
 #include <qodeloc/core/git_watcher.hpp>
 #include <qodeloc/core/hierarchy.hpp>
@@ -27,6 +28,7 @@ public:
   [[nodiscard]] PromptBuilder::Options prompt_builder_options() const;
   [[nodiscard]] HierarchicalIndex::Options hierarchy_options() const;
   [[nodiscard]] Retriever::Options retriever_options() const;
+  [[nodiscard]] ApiServer::Options api_options() const;
   [[nodiscard]] Indexer::Options
   indexer_options(const std::filesystem::path& root_directory = {}) const;
   [[nodiscard]] GitWatcher::Options
@@ -44,6 +46,7 @@ private:
   PromptBuilder::Options prompt_builder_options_;
   HierarchicalIndex::Options hierarchy_options_;
   Retriever::Options retriever_options_;
+  ApiServer::Options api_options_;
   Indexer::Options indexer_options_;
   std::filesystem::path storage_database_path_;
   std::string git_base_ref_;

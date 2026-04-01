@@ -162,9 +162,8 @@ public:
 
   const auto dependencies = indexer.storage().graph().transitive_module_dependencies("app", 2);
   ASSERT_EQ(dependencies.size(), 2U);
-  EXPECT_THAT(dependencies,
-              ElementsAre(ModuleDependency{"math", "math", 1U},
-                          ModuleDependency{"string", "string", 2U}));
+  EXPECT_THAT(dependencies, ElementsAre(ModuleDependency{"math", "math", 1U},
+                                        ModuleDependency{"string", "string", 2U}));
 }
 
 } // namespace qodeloc::core

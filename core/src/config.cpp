@@ -302,6 +302,15 @@ Config Config::load(const std::filesystem::path& env_file) {
       parse_size_t(lookup_value(file_values, "QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT", "256"),
                    "QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT");
 
+  config.api_options_.host = lookup_value(file_values, "QODELOC_API_HOST", "127.0.0.1");
+  config.api_options_.port =
+      parse_u16(lookup_value(file_values, "QODELOC_API_PORT", "3100"), "QODELOC_API_PORT");
+  config.api_options_.max_body_bytes =
+      parse_size_t(lookup_value(file_values, "QODELOC_API_MAX_BODY_BYTES", "1048576"),
+                   "QODELOC_API_MAX_BODY_BYTES");
+  config.api_options_.request_timeout = parse_milliseconds(
+      lookup_value(file_values, "QODELOC_API_TIMEOUT_MS", "30000"), "QODELOC_API_TIMEOUT_MS");
+
   config.indexer_options_.embedding_batch_size =
       parse_size_t(lookup_value(file_values, "QODELOC_INDEXER_EMBEDDING_BATCH_SIZE", "8"),
                    "QODELOC_INDEXER_EMBEDDING_BATCH_SIZE");
@@ -354,6 +363,10 @@ HierarchicalIndex::Options Config::hierarchy_options() const {
 
 Retriever::Options Config::retriever_options() const {
   return retriever_options_;
+}
+
+ApiServer::Options Config::api_options() const {
+  return api_options_;
 }
 
 Indexer::Options Config::indexer_options(const std::filesystem::path& root_directory) const {

@@ -69,6 +69,17 @@ qodeloc_core_add_module(storage
     "${QODELOC_CORE_SOURCE_DIR}/storage.cpp"
 )
 
+target_link_libraries(qodeloc_api PUBLIC
+    qodeloc::config
+    qodeloc::indexer
+    qodeloc::retriever
+    qodeloc::llm
+    qodeloc::storage
+    Boost::system
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog_header_only
+)
+
 target_link_libraries(qodeloc_parser PUBLIC
     tree-sitter::tree-sitter
     tree-sitter-cpp::tree-sitter-cpp
@@ -134,7 +145,7 @@ qodeloc_core_apply_warnings(qodeloc-core)
 
 if(BUILD_TESTING)
     enable_testing()
-    add_test(NAME qodeloc-core-smoke COMMAND qodeloc-core)
+    add_test(NAME qodeloc-core-smoke COMMAND qodeloc-core --smoke)
 
     find_package(GTest CONFIG REQUIRED)
 
@@ -216,6 +227,22 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-prompt-builder-tests)
 
     add_test(NAME qodeloc-prompt-builder COMMAND qodeloc-prompt-builder-tests)
+
+    add_executable(qodeloc-api-tests
+        tests/api_test.cpp
+    )
+
+    target_compile_features(qodeloc-api-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-api-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-api-tests PRIVATE
+        qodeloc::api
+        Boost::system
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-api-tests)
+
+    add_test(NAME qodeloc-api COMMAND qodeloc-api-tests)
 
     add_executable(qodeloc-indexer-tests
         tests/indexer_test.cpp

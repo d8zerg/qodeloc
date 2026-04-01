@@ -303,6 +303,22 @@ const Indexer::Options& Indexer::options() const noexcept {
   return options_;
 }
 
+const std::vector<Indexer::IndexedSymbol>& Indexer::symbols() const noexcept {
+  return symbols_;
+}
+
+const Indexer::Stats& Indexer::last_stats() const noexcept {
+  return last_stats_;
+}
+
+std::chrono::system_clock::time_point Indexer::last_indexed_at() const noexcept {
+  return last_indexed_at_;
+}
+
+std::string_view Indexer::last_operation() const noexcept {
+  return last_operation_;
+}
+
 Storage& Indexer::storage() noexcept {
   return storage_;
 }
@@ -334,7 +350,9 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
 
   const auto source_files =
       collect_source_files(normalized_root, options_.source_extensions, options_.recursive);
-  return process_files(source_files, source_files);
+  const auto result = process_files(source_files, source_files);
+  record_result(result, "index");
+  return result;
 }
 
 Indexer::Result Indexer::update(const std::vector<std::filesystem::path>& changed_files) {
@@ -361,7 +379,9 @@ Indexer::Result Indexer::update(const std::vector<std::filesystem::path>& change
     }
   }
 
-  return process_files(normalized_changed_files, existing_changed_files);
+  const auto result = process_files(normalized_changed_files, existing_changed_files);
+  record_result(result, "update");
+  return result;
 }
 
 Indexer::Result Indexer::update_from_git(std::string_view base_ref) {
@@ -369,8 +389,8 @@ Indexer::Result Indexer::update_from_git(std::string_view base_ref) {
     throw std::runtime_error("Indexer root directory is not configured");
   }
 
-  const auto config = Config::current();
-  const auto resolved_base_ref = base_ref.empty() ? config.git_base_ref() : std::string(base_ref);
+  const auto& config = Config::current();
+  std::string resolved_base_ref = base_ref.empty() ? config.git_base_ref() : std::string(base_ref);
   GitWatcher watcher{GitWatcher::Options{options_.root_directory, std::move(resolved_base_ref)}};
   return update(watcher.changed_files());
 }
@@ -577,6 +597,13 @@ Indexer::Result Indexer::process_files(const std::vector<std::filesystem::path>&
                result.stats.embedding_batches, result.stats.elapsed.count());
 
   return result;
+}
+
+void Indexer::record_result(const Result& result, std::string_view operation) {
+  symbols_ = result.symbols;
+  last_stats_ = result.stats;
+  last_indexed_at_ = std::chrono::system_clock::now();
+  last_operation_ = std::string(operation);
 }
 
 bool Indexer::has_extension(const std::filesystem::path& path,

@@ -28,22 +28,23 @@ If a repo is gated, authenticate first with `hf auth login`.
 
 ## Core Engine
 
-`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The first target is a structured-logging stub wired against the `libparser`/`libindexer`/`libretriever`/`libembedder`/`libllm`/`libstorage`/`libapi` skeleton.
-`core` modules read their runtime defaults from `Config`, which loads `.env` from the repository root or the current process environment.
+`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The default binary starts the HTTP API server; `--smoke` preserves the lightweight module-graph check.
+`core` modules read their runtime defaults from `Config`, which loads `.env` from the repository root or the current process environment. The API server listens on the configured `QODELOC_API_*` values and exposes `/search`, `/explain`, `/deps`, `/callers`, `/module`, `/status`, and `/reindex`.
 
 Planned workflow:
 
 - install deps: `conan install core -of core/build/debug -s build_type=Debug -s compiler.cppstd=23 -g CMakeDeps -g CMakeToolchain --build=missing`
 - configure: `cd core && cmake --preset debug`
 - build: `cd core && cmake --build --preset debug`
-- run: `./core/build/debug/qodeloc-core`
+- run API server: `./core/build/debug/qodeloc-core`
+- run smoke check: `./core/build/debug/qodeloc-core --smoke`
 
 `make build` wraps the same flow from the repository root.
 
 Core-specific make targets are available alongside that scaffold:
 
 - `make build` - configure and build `core/` once `core/CMakeLists.txt` exists
-- `make test` - run the core smoke test through CTest
+- `make test` - run the core test suite through CTest
 - `make release` - build the core Docker image from `core/Dockerfile`
 - `make up-core` - start the core Docker Compose stack when it is added
 - `make down-core` - stop the core Docker Compose stack

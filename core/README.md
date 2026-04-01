@@ -38,4 +38,4 @@ The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-s
 - `release`
 - `relwithdebinfo`
 
-The first binary is still a structured-logging bootstrap, but it now exercises the real parser, indexer, embedder, storage, and prompt/LLM modules as part of the module graph. Later steps will grow it into the retrieval and API layers.
+The first binary starts the HTTP API server by default, and `--smoke` preserves the lightweight module-graph check. The server is wired to the real parser, indexer, retriever, embedder, storage, prompt, and LLM modules, so the API endpoints can be exercised locally once the dev stack is up.
