@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -47,26 +48,75 @@ using Clock = std::chrono::steady_clock;
          value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-[[nodiscard]] std::string normalize_root_module_name(const std::filesystem::path& root_directory,
-                                                     const std::filesystem::path& file_path) {
+struct ModuleIdentity {
+  std::string name;
+  std::string path;
+};
+
+struct ModuleResolutionInput {
+  std::filesystem::path root_directory;
+  std::filesystem::path file_path;
+};
+
+[[nodiscard]] bool has_cmake_lists(const std::filesystem::path& directory) {
   std::error_code ec;
-  const auto relative_parent =
-      std::filesystem::relative(file_path.parent_path(), root_directory, ec);
-  if (!ec && !relative_parent.empty() && relative_parent != ".") {
-    return relative_parent.lexically_normal().generic_string();
+  return std::filesystem::exists(directory / "CMakeLists.txt", ec);
+}
+
+[[nodiscard]] ModuleIdentity
+resolve_module_identity(const ModuleResolutionInput& input,
+                        std::unordered_map<std::string, ModuleIdentity>& cache) {
+  const auto normalized_root = input.root_directory.lexically_normal();
+  const auto normalized_parent = input.file_path.parent_path().lexically_normal();
+  const auto cache_key = normalized_parent.generic_string();
+  if (const auto cached = cache.find(cache_key); cached != cache.end()) {
+    return cached->second;
   }
 
-  auto parent_name = file_path.parent_path().filename().generic_string();
-  if (!parent_name.empty()) {
-    return parent_name;
+  std::filesystem::path module_root;
+  for (auto current = normalized_parent; !current.empty();) {
+    if (has_cmake_lists(current)) {
+      module_root = current;
+      break;
+    }
+
+    if (current == normalized_root) {
+      break;
+    }
+
+    const auto parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
   }
 
-  auto root_name = root_directory.filename().generic_string();
-  if (!root_name.empty()) {
-    return root_name;
+  if (module_root.empty()) {
+    std::error_code ec;
+    const auto relative_parent = std::filesystem::relative(normalized_parent, normalized_root, ec);
+    if (!ec && !relative_parent.empty() && relative_parent != ".") {
+      module_root = normalized_root / *relative_parent.begin();
+    } else {
+      module_root = normalized_parent.empty() ? normalized_root : normalized_parent;
+    }
   }
 
-  return "root";
+  std::error_code ec;
+  const auto relative_module_root = std::filesystem::relative(module_root, normalized_root, ec);
+  std::string module_path;
+  if (!ec && !relative_module_root.empty() && relative_module_root != ".") {
+    module_path = relative_module_root.lexically_normal().generic_string();
+  } else if (!normalized_root.filename().generic_string().empty()) {
+    module_path = normalized_root.filename().generic_string();
+  } else {
+    module_path = "root";
+  }
+
+  ModuleIdentity identity;
+  identity.path = module_path;
+  identity.name = module_path;
+  cache.emplace(cache_key, identity);
+  return identity;
 }
 
 [[nodiscard]] std::vector<std::string> split_qualified_name(std::string_view value) {
@@ -253,14 +303,17 @@ Indexer::Result Indexer::index(const std::filesystem::path& root_directory) {
 
   std::vector<PendingSymbol> pending_symbols;
   pending_symbols.reserve(source_files.size() * 4);
+  std::unordered_map<std::string, ModuleIdentity> module_cache;
 
   for (std::size_t file_index = 0; file_index < source_files.size(); ++file_index) {
     const auto& file_path = source_files[file_index];
     try {
       const auto lines = read_file_lines(file_path);
       const auto symbols = CppParser{}.parse_file(file_path);
-      const auto module_name = normalize_root_module_name(normalized_root, file_path);
-      const auto module_path = file_path.parent_path().lexically_normal().generic_string();
+      const auto module_identity =
+          resolve_module_identity(ModuleResolutionInput{normalized_root, file_path}, module_cache);
+      const auto& module_name = module_identity.name;
+      const auto& module_path = module_identity.path;
 
       for (const auto& symbol : symbols) {
         PendingSymbol pending_symbol;

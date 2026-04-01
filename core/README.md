@@ -1,6 +1,7 @@
 # Core
 
-The C++23 core engine for parsing, indexing, retrieval, and API serving lives here.
+QodeLoc is an air-gapped AI code assistant for teams that cannot send source code to the cloud. It runs entirely on your own infrastructure and provides semantic search, dependency navigation, and natural-language explanations of large C++ codebases - all from within your IDE.
+Developers connect through Continue.dev in VSCode or CLion. The system indexes the repository using AST-level parsing via tree-sitter, stores symbol vectors in Qdrant, and maintains a dependency graph in DuckDB. Queries are answered by a locally running language model through llama.cpp, routed through LiteLLM. No code, query, or response leaves the network perimeter.
 
 ## Bootstrap
 
@@ -28,7 +29,7 @@ Phase 1.2 splits the core into static libraries:
 - `libstorage`
 - `libapi`
 
-The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libindexer` is now live too: `qodeloc::core::Indexer` walks a repository, batches embeddings, and writes symbol relationships into storage. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
+The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libindexer` is now live too: `qodeloc::core::Indexer` walks a repository, batches embeddings, and writes symbol relationships into storage, while `qodeloc::core::HierarchicalIndex` builds module summaries and module-first ranking over the indexed symbol corpus. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
 
 ## Presets
 

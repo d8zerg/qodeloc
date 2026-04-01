@@ -1,6 +1,6 @@
 # QodeLoc Internal API
 
-Phase 1.3-1.7 keep the C++ core module boundaries from phase 1.2 and make the parser, storage, and embedding contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
+Phase 1.3-1.9 keep the C++ core module boundaries from phase 1.2 and make the parser, storage, embedding, and hierarchy contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
 
 ## Common Contract
 
@@ -178,12 +178,58 @@ public:
 
 The current implementation traverses the tree recursively, skips build and VCS directories, parses every file, prepares snippets for embeddings in batches, writes symbols and relationships into DuckDB, and returns progress statistics for reporting. The embedding backend is injectable so tests can run without a live HTTP service.
 
+## Hierarchy Contract
+
+`qodeloc::core::HierarchicalIndex` groups indexed symbols by module, where a module is resolved from the nearest `CMakeLists.txt` when available and otherwise falls back to the first-level directory. It builds a short module summary from header-first public symbols, embeds that summary, and then ranks modules before symbols inside the selected modules.
+
+```cpp
+class HierarchicalIndex final {
+public:
+  struct Options {
+    std::size_t module_top_k;
+    std::size_t symbol_top_k;
+    std::size_t public_symbol_limit;
+  };
+
+  struct ModuleRecord {
+    std::string module_name;
+    std::string module_path;
+    std::string summary;
+    std::size_t public_symbol_count;
+    std::size_t header_count;
+    Embedder::Embedding embedding;
+  };
+
+  struct ModuleHit {
+    ModuleRecord module;
+    double score;
+  };
+
+  struct SymbolHit {
+    Indexer::IndexedSymbol symbol;
+    double score;
+  };
+
+  struct Result {
+    std::vector<ModuleHit> modules;
+    std::vector<SymbolHit> symbols;
+  };
+
+  using ModuleEmbeddingBatchFn = std::function<Embedder::Embeddings(std::span<const std::string>)>;
+
+  void build(const std::vector<Indexer::IndexedSymbol>& symbols,
+             const ModuleEmbeddingBatchFn& module_embedding_batch);
+  Result search(const Embedder::Embedding& query_embedding) const;
+  std::vector<SymbolHit> search_flat(const Embedder::Embedding& query_embedding) const;
+};
+```
+
 ## Module Map
 
 | Library | Public class | Responsibility |
 |---|---|---|
 | `libparser` | `qodeloc::core::CppParser` | C++ source parsing and symbol extraction |
-| `libindexer` | `qodeloc::core::Indexer` | Repository traversal and index orchestration |
+| `libindexer` | `qodeloc::core::Indexer`, `qodeloc::core::HierarchicalIndex` | Repository traversal and hierarchical module ranking |
 | `libretriever` | `qodeloc::core::Retriever` | Query-time retrieval pipeline |
 | `libembedder` | `qodeloc::core::Embedder` | Batched text-to-vector embedding requests |
 | `libllm` | `qodeloc::core::LlmClient` | LLM HTTP client and response handling |

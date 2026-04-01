@@ -56,6 +56,7 @@ endfunction()
 qodeloc_core_add_module(api "${QODELOC_CORE_SOURCE_DIR}/api.cpp")
 qodeloc_core_add_module(embedder "${QODELOC_CORE_SOURCE_DIR}/embedder.cpp")
 qodeloc_core_add_module(indexer "${QODELOC_CORE_SOURCE_DIR}/indexer.cpp")
+target_sources(qodeloc_indexer PRIVATE "${QODELOC_CORE_SOURCE_DIR}/hierarchy.cpp")
 qodeloc_core_add_module(llm "${QODELOC_CORE_SOURCE_DIR}/llm.cpp")
 qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
 qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
@@ -177,4 +178,19 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-indexer-tests)
 
     add_test(NAME qodeloc-indexer COMMAND qodeloc-indexer-tests)
+
+    add_executable(qodeloc-hierarchy-tests
+        tests/hierarchy_test.cpp
+    )
+
+    target_compile_features(qodeloc-hierarchy-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-hierarchy-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-hierarchy-tests PRIVATE
+        qodeloc::indexer
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-hierarchy-tests)
+
+    add_test(NAME qodeloc-hierarchy COMMAND qodeloc-hierarchy-tests)
 endif()
