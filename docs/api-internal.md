@@ -240,6 +240,47 @@ public:
 };
 ```
 
+## Retriever Contract
+
+`qodeloc::core::Retriever` is the query-time wrapper around embedding, hierarchical ranking, and DuckDB context expansion. It currently uses the in-memory `HierarchicalIndex` as the ANN boundary and enriches each hit with direct callers and callees from `Storage`.
+
+```cpp
+class Retriever final : public IModule {
+public:
+  struct Options {
+    HierarchicalIndex::Options hierarchy;
+    std::size_t related_symbol_limit;
+    std::size_t context_token_limit;
+  };
+
+  struct SymbolContext {
+    Indexer::IndexedSymbol symbol;
+    double score;
+    std::vector<StoredSymbol> callers;
+    std::vector<StoredSymbol> callees;
+    std::string context;
+    std::size_t token_count;
+  };
+
+  struct Result {
+    std::string query;
+    Embedder::Embedding query_embedding;
+    std::vector<HierarchicalIndex::ModuleHit> modules;
+    std::vector<SymbolContext> symbols;
+  };
+
+  using QueryEmbeddingFn = std::function<Embedder::Embedding(std::string_view)>;
+
+  void attach_storage(const Storage& storage) noexcept;
+  void build(const std::vector<Indexer::IndexedSymbol>& symbols,
+             const HierarchicalIndex::ModuleEmbeddingBatchFn& module_embedding_batch = {});
+  Result retrieve(std::string_view query) const;
+  Result retrieve(const Embedder::Embedding& query_embedding, std::string_view query = {}) const;
+};
+```
+
+`Retriever::build()` loads the current corpus, `Retriever::attach_storage()` connects the DuckDB graph, and `retrieve()` embeds the query, performs hierarchical ranking, then appends a short graph context. The token budget is enforced approximately by whitespace token counting so the assembled context stays bounded before the later prompt-building stage.
+
 ## Module Map
 
 | Library | Public class | Responsibility |

@@ -82,6 +82,12 @@ target_link_libraries(qodeloc_indexer PUBLIC
     spdlog::spdlog_header_only
 )
 
+target_link_libraries(qodeloc_retriever PUBLIC
+    qodeloc::embedder
+    qodeloc::indexer
+    qodeloc::storage
+)
+
 target_link_libraries(qodeloc_storage PUBLIC duckdb::duckdb)
 
 add_executable(qodeloc-core
@@ -179,6 +185,21 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-indexer-tests)
 
     add_test(NAME qodeloc-indexer COMMAND qodeloc-indexer-tests)
+
+    add_executable(qodeloc-retriever-tests
+        tests/retriever_test.cpp
+    )
+
+    target_compile_features(qodeloc-retriever-tests PRIVATE cxx_std_23)
+    target_include_directories(qodeloc-retriever-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-retriever-tests PRIVATE
+        qodeloc::retriever
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-retriever-tests)
+
+    add_test(NAME qodeloc-retriever COMMAND qodeloc-retriever-tests)
 
     add_executable(qodeloc-git-watcher-tests
         tests/git_watcher_test.cpp
