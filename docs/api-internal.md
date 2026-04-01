@@ -131,6 +131,53 @@ public:
 
 `embed_batch()` groups texts into fixed-size batches to reduce HTTP overhead during primary indexing. The response parser accepts the standard OpenAI `data[]` payload and preserves input order by `index`.
 
+## Indexer Contract
+
+`qodeloc::core::Indexer` walks a repository, parses C++ files, batches embedding requests, and persists the structural graph into `Storage`:
+
+```cpp
+class Indexer final : public IModule {
+public:
+  struct Options {
+    std::filesystem::path root_directory;
+    std::size_t embedding_batch_size;
+    bool recursive;
+    std::vector<std::string> source_extensions;
+  };
+
+  struct IndexedSymbol {
+    SymbolId symbol_id;
+    StoredSymbol symbol;
+    std::string source_text;
+    Embedder::Embedding embedding;
+  };
+
+  struct Stats {
+    std::size_t files_scanned;
+    std::size_t files_indexed;
+    std::size_t symbols_indexed;
+    std::size_t parse_errors;
+    std::size_t embedding_batches;
+    std::chrono::milliseconds elapsed;
+  };
+
+  struct Result {
+    Stats stats;
+    std::vector<IndexedSymbol> symbols;
+  };
+
+  using EmbeddingBatchFn = std::function<Embedder::Embeddings(std::span<const std::string>)>;
+
+  Indexer();
+  explicit Indexer(Options options, const std::filesystem::path& database_path = {},
+                   EmbeddingBatchFn embedding_batch = {});
+  Result index();
+  Result index(const std::filesystem::path& root_directory);
+};
+```
+
+The current implementation traverses the tree recursively, skips build and VCS directories, parses every file, prepares snippets for embeddings in batches, writes symbols and relationships into DuckDB, and returns progress statistics for reporting. The embedding backend is injectable so tests can run without a live HTTP service.
+
 ## Module Map
 
 | Library | Public class | Responsibility |

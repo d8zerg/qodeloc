@@ -28,7 +28,7 @@ Phase 1.2 splits the core into static libraries:
 - `libstorage`
 - `libapi`
 
-The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
+The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libindexer` is now live too: `qodeloc::core::Indexer` walks a repository, batches embeddings, and writes symbol relationships into storage. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
 
 ## Presets
 
@@ -36,4 +36,4 @@ The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-s
 - `release`
 - `relwithdebinfo`
 
-The first binary is still a structured-logging bootstrap, but it now exercises the real parser and storage modules as part of the module graph. Later steps will grow it into the parser/indexer/API service.
+The first binary is still a structured-logging bootstrap, but it now exercises the real parser, indexer, embedder, and storage modules as part of the module graph. Later steps will grow it into the retrieval and API layers.

@@ -1,15 +1,88 @@
 #pragma once
 
+#include <chrono>
+#include <cstddef>
+#include <filesystem>
+#include <functional>
+#include <optional>
+#include <qodeloc/core/embedder.hpp>
 #include <qodeloc/core/module.hpp>
+#include <qodeloc/core/storage.hpp>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace qodeloc::core {
 
 class Indexer final : public IModule {
 public:
-  Indexer() = default;
+  struct Options {
+    std::filesystem::path root_directory;
+    std::size_t embedding_batch_size{8};
+    bool recursive{true};
+    std::vector<std::string> source_extensions{".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx"};
+  };
+
+  struct IndexedSymbol {
+    SymbolId symbol_id{};
+    StoredSymbol symbol;
+    std::string source_text;
+    Embedder::Embedding embedding;
+  };
+
+  struct Stats {
+    std::size_t files_scanned{};
+    std::size_t files_indexed{};
+    std::size_t symbols_indexed{};
+    std::size_t parse_errors{};
+    std::size_t embedding_batches{};
+    std::chrono::milliseconds elapsed{};
+  };
+
+  struct Result {
+    Stats stats;
+    std::vector<IndexedSymbol> symbols;
+  };
+
+  using EmbeddingBatchFn = std::function<Embedder::Embeddings(std::span<const std::string>)>;
+
+  Indexer();
+  explicit Indexer(Options options, const std::filesystem::path& database_path = {},
+                   EmbeddingBatchFn embedding_batch = {});
 
   [[nodiscard]] std::string_view module_name() const noexcept override;
   [[nodiscard]] bool ready() const noexcept override;
+  [[nodiscard]] const Options& options() const noexcept;
+  [[nodiscard]] Storage& storage() noexcept;
+  [[nodiscard]] const Storage& storage() const noexcept;
+  [[nodiscard]] Result index();
+  [[nodiscard]] Result index(const std::filesystem::path& root_directory);
+
+private:
+  struct PendingSymbol {
+    std::filesystem::path file_path;
+    std::string module_name;
+    std::string module_path;
+    StoredSymbol symbol;
+    SymbolDependencies dependencies;
+    std::string source_text;
+  };
+
+  [[nodiscard]] static bool has_extension(const std::filesystem::path& path,
+                                          const std::vector<std::string>& extensions);
+  [[nodiscard]] static std::vector<std::filesystem::path>
+  collect_source_files(const std::filesystem::path& root_directory,
+                       const std::vector<std::string>& extensions, bool recursive);
+  [[nodiscard]] static std::optional<SymbolId>
+  resolve_symbol_id(std::string_view target_name, const std::vector<IndexedSymbol>& indexed_symbols,
+                    std::string_view current_qualified_name);
+  [[nodiscard]] Embedder::Embeddings request_embeddings(std::span<const std::string> texts) const;
+
+  Options options_;
+  Storage storage_;
+  Embedder embedder_;
+  EmbeddingBatchFn embedding_batch_;
 };
 
 } // namespace qodeloc::core

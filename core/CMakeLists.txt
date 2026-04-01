@@ -73,6 +73,13 @@ target_link_libraries(qodeloc_embedder PUBLIC
     nlohmann_json::nlohmann_json
 )
 
+target_link_libraries(qodeloc_indexer PUBLIC
+    qodeloc::embedder
+    qodeloc::parser
+    qodeloc::storage
+    spdlog::spdlog_header_only
+)
+
 target_link_libraries(qodeloc_storage PUBLIC duckdb::duckdb)
 
 add_executable(qodeloc-core
@@ -152,4 +159,22 @@ if(BUILD_TESTING)
     qodeloc_core_apply_warnings(qodeloc-embedder-tests)
 
     add_test(NAME qodeloc-embedder COMMAND qodeloc-embedder-tests)
+
+    add_executable(qodeloc-indexer-tests
+        tests/indexer_test.cpp
+    )
+
+    target_compile_features(qodeloc-indexer-tests PRIVATE cxx_std_23)
+    target_compile_definitions(qodeloc-indexer-tests PRIVATE
+        QODELOC_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../testdata"
+    )
+    target_include_directories(qodeloc-indexer-tests PRIVATE "${QODELOC_CORE_INCLUDE_DIR}")
+    target_link_libraries(qodeloc-indexer-tests PRIVATE
+        qodeloc::indexer
+        GTest::gmock_main
+    )
+
+    qodeloc_core_apply_warnings(qodeloc-indexer-tests)
+
+    add_test(NAME qodeloc-indexer COMMAND qodeloc-indexer-tests)
 endif()
