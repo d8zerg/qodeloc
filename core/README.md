@@ -1,12 +1,35 @@
 # Core
 
-QodeLoc is an air-gapped AI code assistant for teams that cannot send source code to the cloud. It runs entirely on your own infrastructure and provides semantic search, dependency navigation, and natural-language explanations of large C++ codebases - all from within your IDE.
-Developers connect through Continue.dev in VSCode or CLion. The system indexes the repository using AST-level parsing via tree-sitter, stores symbol vectors in Qdrant, and maintains a dependency graph in DuckDB. Queries are answered by a locally running language model through llama.cpp, routed through LiteLLM. No code, query, or response leaves the network perimeter.
-Runtime defaults for the core modules come from [`../.env`](../.env) through `qodeloc::core::Config`, so the same ports, limits, and template paths are shared by CMake, tests, and the Docker dev stack.
+The C++ core engine indexes the repository, stores graph relationships in DuckDB, and now uses Qdrant as the vector store for symbol search.
 
-## Bootstrap
+## Responsibilities
 
-From the repository root:
+- Parse C++ sources with tree-sitter
+- Extract symbol and dependency information
+- Generate embeddings through the configured embedding endpoint
+- Persist the structural graph in DuckDB
+- Persist symbol vectors in Qdrant
+- Expose the HTTP API used by the MCP adapter and direct clients
+- Render prompts and call LiteLLM for generation
+
+## Runtime Modes
+
+- Default mode starts the HTTP API server and runs the initial index in the background.
+- `--smoke` keeps the fast module-graph self-check.
+
+## Configuration
+
+Runtime defaults are loaded from the repository `.env` plus Docker overrides through `qodeloc::core::Config`.
+Important pieces:
+
+- `QODELOC_EMBEDDER_*` - embedding endpoint
+- `QODELOC_LLM_*` - LiteLLM endpoint
+- `QODELOC_QDRANT_*` - vector store settings
+- `QODELOC_PROMPTS_DIR` - prompt templates
+- `QODELOC_API_*` - HTTP API host, port, and limits
+- `QODELOC_STORAGE_DB_PATH` - DuckDB file path
+
+## Local Build
 
 ```bash
 conan install core -of core/build/debug -s build_type=Debug -s compiler.cppstd=23 -g CMakeDeps -g CMakeToolchain --build=missing
@@ -16,26 +39,19 @@ cmake --build --preset debug
 ./build/debug/qodeloc-core
 ```
 
-The same flow is wrapped by `make build` from the repository root.
+## Tests
 
-## Module Skeleton
+- `qodeloc-parser-tests`
+- `qodeloc-storage-tests`
+- `qodeloc-embedder-tests`
+- `qodeloc-llm-tests`
+- `qodeloc-prompt-builder-tests`
+- `qodeloc-api-tests`
+- `qodeloc-indexer-tests`
+- `qodeloc-indexer-update-tests`
+- `qodeloc-hierarchy-tests`
+- `qodeloc-retriever-tests`
 
-Phase 1.2 splits the core into static libraries:
+## Docker
 
-- `libparser`
-- `libindexer`
-- `libretriever`
-- `libembedder`
-- `libllm`
-- `libstorage`
-- `libapi`
-
-The parser library is live: `qodeloc::core::CppParser::parse_file()` uses tree-sitter C++ to extract symbols and their basic dependencies from a source file. `libindexer` is now live too: `qodeloc::core::Indexer` walks a repository, batches embeddings, and writes symbol relationships into storage, while `qodeloc::core::HierarchicalIndex` builds module summaries and module-first ranking over the indexed symbol corpus. `libstorage` is also live now: `qodeloc::core::DependencyGraph` stores the DuckDB schema for symbols, calls, includes, inheritance, and modules, and `qodeloc::core::Storage::graph()` exposes that backend to later phases. `libembedder` now speaks to a configurable OpenAI-compatible embeddings endpoint and batches requests before dispatch. `libllm` now contains `qodeloc::core::LlmClient` on Boost.Beast plus `qodeloc::core::PromptBuilder` over YAML templates in `prompts/`, so the retrieval layer can render prompts for LiteLLM-backed local generation. The internal contract is documented in [`docs/api-internal.md`](../docs/api-internal.md).
-
-## Presets
-
-- `debug`
-- `release`
-- `relwithdebinfo`
-
-The first binary starts the HTTP API server by default, and `--smoke` preserves the lightweight module-graph check. The server is wired to the real parser, indexer, retriever, embedder, storage, prompt, and LLM modules, so the API endpoints can be exercised locally once the dev stack is up.
+`core/Dockerfile` builds the service image used by the compose stack. The container runs against the mounted workspace so the index reflects the current checkout.

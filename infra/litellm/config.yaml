@@ -1,11 +1,44 @@
 # LiteLLM proxy config for the local QodeLoc dev stack.
+#
+# The local llama.cpp backend serves a single 8B instruction model. LiteLLM
+# exposes it under several aliases so the adapter can choose different routing
+# profiles without changing the backend wiring.
 
 model_list:
+  - model_name: fast
+    litellm_params:
+      model: openai/qodeloc-llama31-8b
+      api_base: http://llama-cpp:8080
+      api_key: no-key
+  - model_name: balanced
+    litellm_params:
+      model: openai/qodeloc-llama31-8b
+      api_base: http://llama-cpp:8080
+      api_key: no-key
+  - model_name: deep
+    litellm_params:
+      model: openai/qodeloc-llama31-8b
+      api_base: http://llama-cpp:8080
+      api_key: no-key
+  - model_name: moe
+    litellm_params:
+      model: openai/qodeloc-llama31-8b
+      api_base: http://llama-cpp:8080
+      api_key: no-key
   - model_name: qodeloc-local
     litellm_params:
-      model: openai/qodeloc-tinyllama
+      model: openai/qodeloc-llama31-8b
       api_base: http://llama-cpp:8080
       api_key: no-key
 
 litellm_settings:
-  master_key: sk-qodeloc-dev
+  master_key: os.environ/QODELOC_LITELLM_MASTER_KEY
+  request_timeout: 120
+  num_retries: 2
+  default_fallbacks:
+    - balanced
+    - deep
+    - moe
+
+general_settings:
+  global_max_parallel_requests: 15

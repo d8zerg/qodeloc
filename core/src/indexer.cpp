@@ -269,7 +269,7 @@ Indexer::Indexer()
 Indexer::Indexer(Options options, const std::filesystem::path& database_path,
                  EmbeddingBatchFn embedding_batch)
     : options_(std::move(options)), storage_(database_path), embedder_(),
-      embedding_batch_(std::move(embedding_batch)) {
+      vector_store_(), embedding_batch_(std::move(embedding_batch)) {
   if (options_.embedding_batch_size == 0) {
     throw std::invalid_argument("Indexer embedding batch size must be greater than zero");
   }
@@ -586,6 +586,28 @@ Indexer::Result Indexer::process_files(const std::vector<std::filesystem::path>&
   } catch (...) {
     storage_.graph().rollback_transaction();
     throw;
+  }
+
+  if (vector_store_.ready()) {
+    try {
+      vector_store_.delete_files(files_to_delete);
+
+      std::vector<VectorStore::Record> vector_records;
+      vector_records.reserve(result.symbols.size());
+      for (const auto& symbol : result.symbols) {
+        vector_records.push_back(VectorStore::Record{
+            symbol.symbol_id, symbol.symbol, symbol.source_text, symbol.embedding});
+      }
+
+      if (!vector_records.empty()) {
+        vector_store_.upsert_records(vector_records);
+      }
+      spdlog::info("Synchronized {} vectors with Qdrant collection {}", vector_records.size(),
+                   vector_store_.options().collection);
+    } catch (const std::exception& error) {
+      spdlog::warn("Qdrant sync failed: {}", error.what());
+      throw;
+    }
   }
 
   result.stats.symbols_indexed = result.symbols.size();

@@ -159,7 +159,9 @@ void write_source_file(const std::filesystem::path& file_path, std::string_view 
   output << content;
 }
 
-[[nodiscard]] json post_json(std::uint16_t port, std::string target, const json& body) {
+[[nodiscard]] json
+post_json(std::uint16_t port, std::string target, const json& body,
+          std::initializer_list<std::pair<std::string_view, std::string_view>> headers = {}) {
   asio::io_context io;
   tcp::resolver resolver{io};
   beast::tcp_stream stream{io};
@@ -173,6 +175,9 @@ void write_source_file(const std::filesystem::path& file_path, std::string_view 
   request.set(http::field::user_agent, "qodeloc-api-test");
   request.set(http::field::content_type, "application/json");
   request.set(http::field::accept, "application/json");
+  for (const auto& [name, value] : headers) {
+    request.set(name, value);
+  }
   request.body() = body.dump();
   request.prepare_payload();
 
@@ -343,6 +348,7 @@ public:
     EXPECT_EQ(request[http::field::authorization], "Bearer sk-qodeloc-dev");
     const auto payload = json::parse(request.body());
     EXPECT_FALSE(payload.value("stream", true));
+    EXPECT_EQ(payload.value("model", ""), "balanced");
     EXPECT_TRUE(payload.contains("messages"));
     EXPECT_GT(payload["messages"].size(), 0U);
     EXPECT_EQ(request_index, 0U);
@@ -380,6 +386,7 @@ public:
   api_server.attach_prompt_builder(prompt_builder);
   api_server.attach_llm_client(llm_client);
   api_server.attach_module_embedding_batch(module_embedding_batch_fn);
+  api_server.set_bootstrap_state("ready", "Initial corpus ready");
 
   ASSERT_TRUE(api_server.ready());
   api_server.start();
@@ -388,6 +395,9 @@ public:
 
   const auto status = get_json(port, "/status");
   EXPECT_TRUE(status.value("running", false));
+  EXPECT_EQ(status.value("bootstrap_state", ""), "ready");
+  EXPECT_EQ(status.value("bootstrap_message", ""), "Initial corpus ready");
+  EXPECT_TRUE(status.value("bootstrap_complete", false));
   EXPECT_EQ(status.value("symbol_count", 0U), indexer.storage().graph().symbol_count());
   EXPECT_TRUE(status.value("retriever_ready", false));
   EXPECT_TRUE(status.value("llm_ready", false));
@@ -411,8 +421,10 @@ public:
   ASSERT_FALSE(module["symbols"].empty());
   EXPECT_THAT(module.dump(), HasSubstr("app::Widget::name"));
 
-  const auto explain = post_json(port, "/explain", {{"name", "app::Widget::name"}});
+  const auto explain = post_json(port, "/explain", {{"name", "app::Widget::name"}},
+                                 {{"X-QodeLoc-Model", "balanced"}});
   EXPECT_EQ(explain.value("name", ""), "app::Widget::name");
+  EXPECT_EQ(explain.value("model", ""), "balanced");
   EXPECT_EQ(explain["completion"].value("content", ""), "Widget explanation");
   EXPECT_EQ(explain["prompt"].value("template_name", ""), "explain");
   EXPECT_EQ(explain["prompt"]["messages"].size(), 2U);
@@ -433,6 +445,7 @@ public:
   const auto status_after = get_json(port, "/status");
   EXPECT_EQ(status_after.value("symbol_count", 0U), after_symbol_count);
   EXPECT_EQ(status_after.value("last_operation", ""), "update");
+  EXPECT_EQ(status_after.value("bootstrap_state", ""), "ready");
 
   api_server.stop();
 }

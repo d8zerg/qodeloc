@@ -26,6 +26,7 @@ public:
     std::string api_path;
     std::string model;
     std::string api_key;
+    std::size_t max_tokens{};
     std::chrono::milliseconds timeout{};
     std::size_t max_retries{};
     std::chrono::milliseconds initial_backoff{};

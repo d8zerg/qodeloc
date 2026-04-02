@@ -112,10 +112,31 @@ Retriever::Result Retriever::retrieve(const Embedder::Embedding& query_embedding
   result.query = std::string(query);
   result.query_embedding = query_embedding;
   result.modules = hierarchy_result.modules;
-  result.symbols.reserve(hierarchy_result.symbols.size());
 
-  for (const auto& hit : hierarchy_result.symbols) {
-    result.symbols.push_back(enrich_symbol(hit));
+  std::vector<std::pair<Indexer::IndexedSymbol, double>> ranked_symbols;
+  if (vector_store_.ready()) {
+    const auto hits = vector_store_.search(query_embedding, options_.hierarchy.symbol_top_k);
+    ranked_symbols.reserve(hits.size());
+    for (const auto& hit : hits) {
+      Indexer::IndexedSymbol symbol;
+      symbol.symbol_id = hit.record.symbol_id;
+      symbol.symbol = hit.record.symbol;
+      symbol.source_text = hit.record.source_text;
+      symbol.embedding = hit.record.embedding;
+      ranked_symbols.emplace_back(std::move(symbol), hit.score);
+    }
+  }
+
+  if (ranked_symbols.empty()) {
+    ranked_symbols.reserve(hierarchy_result.symbols.size());
+    for (const auto& hit : hierarchy_result.symbols) {
+      ranked_symbols.emplace_back(hit.symbol, hit.score);
+    }
+  }
+
+  result.symbols.reserve(ranked_symbols.size());
+  for (const auto& [symbol, score] : ranked_symbols) {
+    result.symbols.push_back(enrich_symbol(symbol, score));
   }
 
   return result;
@@ -129,14 +150,15 @@ Embedder::Embedding Retriever::query_embedding(std::string_view query) const {
   return embedder_.embed(query);
 }
 
-Retriever::SymbolContext Retriever::enrich_symbol(const HierarchicalIndex::SymbolHit& hit) const {
+Retriever::SymbolContext Retriever::enrich_symbol(const Indexer::IndexedSymbol& symbol,
+                                                   double score) const {
   SymbolContext context;
-  context.symbol = hit.symbol;
-  context.score = hit.score;
+  context.symbol = symbol;
+  context.score = score;
 
   if (storage_ != nullptr) {
-    context.callers = storage_->graph().callers_of(hit.symbol.symbol_id);
-    context.callees = storage_->graph().callees_from(hit.symbol.symbol_id);
+    context.callers = storage_->graph().callers_of(symbol.symbol_id);
+    context.callees = storage_->graph().callees_from(symbol.symbol_id);
   }
 
   std::sort(context.callers.begin(), context.callers.end(),

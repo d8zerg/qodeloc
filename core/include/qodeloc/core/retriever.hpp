@@ -6,6 +6,7 @@
 #include <qodeloc/core/indexer.hpp>
 #include <qodeloc/core/module.hpp>
 #include <qodeloc/core/storage.hpp>
+#include <qodeloc/core/vector_store.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -63,7 +64,8 @@ public:
 
 private:
   [[nodiscard]] Embedder::Embedding query_embedding(std::string_view query) const;
-  [[nodiscard]] SymbolContext enrich_symbol(const HierarchicalIndex::SymbolHit& hit) const;
+  [[nodiscard]] SymbolContext enrich_symbol(const Indexer::IndexedSymbol& symbol,
+                                            double score) const;
   [[nodiscard]] std::string build_context(const SymbolContext& context) const;
   [[nodiscard]] bool append_line(std::string& context, std::size_t& tokens_used,
                                  std::string_view line) const;
@@ -73,6 +75,7 @@ private:
   QueryEmbeddingFn query_embedding_;
   Embedder embedder_;
   HierarchicalIndex hierarchy_;
+  VectorStore vector_store_;
   std::vector<Indexer::IndexedSymbol> symbols_;
   const Storage* storage_{nullptr};
   bool corpus_ready_{false};

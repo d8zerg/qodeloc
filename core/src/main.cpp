@@ -13,6 +13,7 @@
 #include <qodeloc/core/storage.hpp>
 #include <spdlog/spdlog.h>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace core = qodeloc::core;
@@ -56,6 +57,10 @@ int main(int argc, char* argv[]) {
     spdlog::info("LLM endpoint: {}:{}", config.llm_options().host, config.llm_options().port);
     spdlog::info("Embedder endpoint: {}:{}", config.embedder_options().host,
                  config.embedder_options().port);
+    spdlog::info("Qdrant endpoint: {}:{} collection={} enabled={}",
+                 config.vector_store_options().host, config.vector_store_options().port,
+                 config.vector_store_options().collection,
+                 config.vector_store_options().enabled ? "true" : "false");
     spdlog::info("API endpoint: {}:{}", config.api_options().host, config.api_options().port);
 
     if (smoke_mode) {
@@ -79,8 +84,10 @@ int main(int argc, char* argv[]) {
       return 0;
     }
 
-    core::Indexer indexer{config.indexer_options(config.root_directory()),
-                          config.storage_database_path()};
+    const auto index_root = config.indexer_root_directory().empty()
+                                ? config.root_directory()
+                                : config.indexer_root_directory();
+    core::Indexer indexer{config.indexer_options(index_root), config.storage_database_path()};
     core::Retriever retriever{config.retriever_options()};
     core::PromptBuilder prompt_builder{config.prompt_builder_options()};
     core::LlmClient llm_client{config.llm_options()};
@@ -91,28 +98,44 @@ int main(int argc, char* argv[]) {
     api_server.attach_prompt_builder(prompt_builder);
     api_server.attach_llm_client(llm_client);
 
-    if (indexer.ready()) {
+    api_server.set_bootstrap_state("initializing", "Initializing API and preparing initial corpus");
+    api_server.start();
+    spdlog::info("API server listening on {}:{}", api_server.status().host,
+                 api_server.bound_port());
+
+    std::thread bootstrap_thread([&] {
       try {
+        api_server.set_bootstrap_state("indexing", "Indexing initial corpus");
+        if (!indexer.ready()) {
+          const auto message = "Indexer root is not configured; API is available but corpus is not";
+          spdlog::warn("{}", message);
+          api_server.set_bootstrap_state("error", message);
+          return;
+        }
+
         spdlog::info("Bootstrapping initial index from {}",
                      indexer.options().root_directory.generic_string());
         const auto result = indexer.index();
         try {
           retriever.build(indexer.symbols());
         } catch (const std::exception& error) {
-          spdlog::warn("Retriever bootstrap skipped: {}", error.what());
+          const auto message = std::string("Retriever bootstrap failed: ") + error.what();
+          spdlog::warn("{}", message);
+          api_server.set_bootstrap_state("error", message);
+          return;
         }
-        spdlog::info("Initial corpus ready: {} files, {} symbols", result.stats.files_indexed,
-                     result.stats.symbols_indexed);
-      } catch (const std::exception& error) {
-        spdlog::warn("Initial index failed: {}", error.what());
-      }
-    } else {
-      spdlog::warn("Indexer root is not configured; API will start without a corpus");
-    }
 
-    api_server.start();
-    spdlog::info("API server listening on {}:{}", api_server.status().host,
-                 api_server.bound_port());
+        const auto ready_message =
+            "Initial corpus ready: " + std::to_string(result.stats.files_indexed) + " files, " +
+            std::to_string(result.stats.symbols_indexed) + " symbols";
+        api_server.set_bootstrap_state("ready", ready_message);
+        spdlog::info("{}", ready_message);
+      } catch (const std::exception& error) {
+        const auto message = std::string("Initial index failed: ") + error.what();
+        api_server.set_bootstrap_state("error", message);
+        spdlog::warn("{}", message);
+      }
+    });
 
     asio::io_context signal_io;
     asio::signal_set signals(signal_io, SIGINT, SIGTERM);
@@ -124,6 +147,9 @@ int main(int argc, char* argv[]) {
 
     signal_io.run();
     api_server.stop();
+    if (bootstrap_thread.joinable()) {
+      bootstrap_thread.join();
+    }
     spdlog::info("QodeLoc Core stopped");
     return 0;
   } catch (const std::exception& error) {

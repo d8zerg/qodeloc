@@ -1,6 +1,6 @@
 # QodeLoc Internal API
 
-Phase 1.3-1.9 keep the C++ core module boundaries from phase 1.2 and make the parser, storage, embedding, and hierarchy contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
+Phase 1.3-1.9 keep the C++ core module boundaries from phase 1.2 and make the parser, storage, embedding, vector store, and hierarchy contracts concrete. The classes below are now real extension points rather than pure stubs, so later steps can build on them without reshaping the core wiring.
 
 ## Common Contract
 
@@ -15,7 +15,7 @@ public:
 };
 ```
 
-The current skeleton uses `ready() == false` for the indexer, retriever, LLM, and API modules. `Embedder::ready()` returns `true` when the embeddings endpoint configuration is complete. `CppParser::ready()` is wired to the tree-sitter C++ language and returns `true` when the dependency is available. `Storage::ready()` becomes `true` when DuckDB initializes successfully.
+The current skeleton uses `ready() == false` for the indexer, retriever, LLM, and API modules. `Embedder::ready()` returns `true` when the embeddings endpoint configuration is complete. `CppParser::ready()` is wired to the tree-sitter C++ language and returns `true` when the dependency is available. `Storage::ready()` becomes `true` when DuckDB initializes successfully. `VectorStore::ready()` becomes `true` when Qdrant is enabled and reachable.
 
 ## Config Contract
 
@@ -139,6 +139,47 @@ The schema uses five tables:
 
 `Storage` is the thin `IModule` wrapper around `DependencyGraph`, so later phases can depend on the same storage layer without reworking the core bootstrap.
 
+## Vector Store Contract
+
+`qodeloc::core::VectorStore` is the Qdrant REST client used by the Docker runtime for ANN search and symbol payload sync:
+
+```cpp
+class VectorStore final : public IModule {
+public:
+  struct Options {
+    bool enabled;
+    std::string host;
+    std::uint16_t port;
+    std::string collection;
+    std::size_t vector_size;
+    std::chrono::milliseconds timeout;
+    std::string api_key;
+  };
+
+  struct Record {
+    SymbolId symbol_id;
+    StoredSymbol symbol;
+    std::string source_text;
+    Embedder::Embedding embedding;
+  };
+
+  struct SearchHit {
+    Record record;
+    double score;
+  };
+
+  void ensure_collection() const;
+  void upsert_record(const Record& record) const;
+  void upsert_records(std::span<const Record> records) const;
+  void delete_file(std::string_view file_path) const;
+  void delete_files(std::span<const std::filesystem::path> file_paths) const;
+  std::vector<SearchHit> search(const Embedder::Embedding& query_embedding,
+                                std::size_t limit) const;
+};
+```
+
+When `QODELOC_QDRANT_ENABLED=true`, the indexer syncs `StoredSymbol` payloads into the configured Qdrant collection after each successful DuckDB commit. The retriever queries Qdrant first and falls back to the in-memory hierarchy when vector search is disabled or unavailable.
+
 ## Git Watcher Contract
 
 `qodeloc::core::GitWatcher` shells out to `git diff --name-only <base_ref>` for the repository root and returns the changed paths as `std::filesystem::path` values. `Indexer::update_from_git()` wraps that helper and passes the resulting paths into the existing incremental update pipeline. The default `base_ref` comes from `Config`.
@@ -257,7 +298,7 @@ The builder loads a small YAML subset with `name`, `context_token_limit`, `syste
 
 ## Indexer Contract
 
-`qodeloc::core::Indexer` walks a repository, parses C++ files, batches embedding requests, and persists the structural graph into `Storage`. Its default batching and file-extension settings come from `Config`:
+`qodeloc::core::Indexer` walks a repository, parses C++ files, batches embedding requests, persists the structural graph into `Storage`, and synchronizes symbol vectors into `VectorStore` when Qdrant is enabled. Its default batching and file-extension settings come from `Config`:
 
 ```cpp
 class Indexer final : public IModule {
@@ -352,7 +393,7 @@ public:
 
 ## Retriever Contract
 
-`qodeloc::core::Retriever` is the query-time wrapper around embedding, hierarchical ranking, and DuckDB context expansion. It currently uses the in-memory `HierarchicalIndex` as the ANN boundary and enriches each hit with direct callers and callees from `Storage`.
+`qodeloc::core::Retriever` is the query-time wrapper around embedding, vector search, hierarchical ranking, and DuckDB context expansion. In Docker runtime it uses `VectorStore` for ANN search when Qdrant is enabled, then enriches each hit with direct callers and callees from `Storage`. Outside Docker it can still fall back to the in-memory `HierarchicalIndex`.
 
 ```cpp
 class Retriever final : public IModule {
@@ -393,7 +434,7 @@ public:
 
 ## API Contract
 
-`qodeloc::core::ApiServer` exposes the HTTP façade for the core engine. It uses Boost.Beast, binds to the configured host and port, and serves JSON endpoints for search, explanations, dependencies, status, and incremental reindexing.
+`qodeloc::core::ApiServer` exposes the HTTP façade for the core engine. It uses Boost.Beast, binds to the configured host and port, and serves JSON endpoints for search, explanations, dependencies, status, and incremental reindexing. The server can start before the first corpus is fully indexed; while that happens, `/status` reports `bootstrap_state` as `initializing` or `indexing`, and the query endpoints return `503`.
 
 ```cpp
 class ApiServer final : public IModule {
@@ -409,6 +450,9 @@ public:
     bool running;
     std::string host;
     std::uint16_t port;
+    std::string bootstrap_state;
+    std::string bootstrap_message;
+    bool bootstrap_complete;
     std::filesystem::path root_directory;
     std::size_t symbol_count;
     std::size_t module_count;
@@ -425,6 +469,7 @@ public:
   void attach_prompt_builder(PromptBuilder& prompt_builder) noexcept;
   void attach_llm_client(LlmClient& llm_client) noexcept;
   void attach_module_embedding_batch(Retriever::ModuleEmbeddingBatchFn module_embedding_batch);
+  void set_bootstrap_state(std::string state, std::string message = {});
 
   void start();
   void stop() noexcept;
@@ -443,7 +488,7 @@ The server answers `POST /search`, `POST /explain`, `POST /deps`, `POST /callers
 | `libretriever` | `qodeloc::core::Retriever` | Query-time retrieval pipeline |
 | `libembedder` | `qodeloc::core::Embedder` | Batched text-to-vector embedding requests |
 | `libllm` | `qodeloc::core::LlmClient`, `qodeloc::core::PromptBuilder` | OpenAI-compatible LLM client and prompt rendering |
-| `libstorage` | `qodeloc::core::Storage` | DuckDB-backed dependency graph and future vector backends |
+| `libstorage` | `qodeloc::core::Storage`, `qodeloc::core::VectorStore` | DuckDB-backed dependency graph and Qdrant vector backend |
 | `libapi` | `qodeloc::core::ApiServer` | HTTP API façade for the core engine |
 
 ## Build Layout

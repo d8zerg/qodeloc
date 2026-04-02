@@ -249,8 +249,10 @@ Config Config::load(const std::filesystem::path& env_file) {
       parse_u16(lookup_value(file_values, "QODELOC_LLM_PORT", "4000"), "QODELOC_LLM_PORT");
   config.llm_options_.api_path =
       lookup_value(file_values, "QODELOC_LLM_API_PATH", "/v1/chat/completions");
-  config.llm_options_.model = lookup_value(file_values, "QODELOC_LLM_MODEL", "qodeloc-local");
+  config.llm_options_.model = lookup_value(file_values, "QODELOC_LLM_MODEL", "balanced");
   config.llm_options_.api_key = lookup_value(file_values, "QODELOC_LLM_API_KEY", "sk-qodeloc-dev");
+  config.llm_options_.max_tokens = parse_size_t(
+      lookup_value(file_values, "QODELOC_LLM_MAX_TOKENS", "96"), "QODELOC_LLM_MAX_TOKENS");
   config.llm_options_.timeout = parse_milliseconds(
       lookup_value(file_values, "QODELOC_LLM_TIMEOUT_MS", "30000"), "QODELOC_LLM_TIMEOUT_MS");
   config.llm_options_.max_retries = parse_size_t(
@@ -302,6 +304,23 @@ Config Config::load(const std::filesystem::path& env_file) {
       parse_size_t(lookup_value(file_values, "QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT", "256"),
                    "QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT");
 
+  config.vector_store_options_.enabled = parse_bool(
+      lookup_value(file_values, "QODELOC_QDRANT_ENABLED", "false"), "QODELOC_QDRANT_ENABLED");
+  config.vector_store_options_.host =
+      lookup_value(file_values, "QODELOC_QDRANT_HOST", "127.0.0.1");
+  config.vector_store_options_.port =
+      parse_u16(lookup_value(file_values, "QODELOC_QDRANT_PORT", "6333"), "QODELOC_QDRANT_PORT");
+  config.vector_store_options_.collection =
+      lookup_value(file_values, "QODELOC_QDRANT_COLLECTION", "qodeloc-symbols");
+  config.vector_store_options_.vector_size = parse_size_t(
+      lookup_value(file_values, "QODELOC_QDRANT_VECTOR_SIZE", "768"),
+      "QODELOC_QDRANT_VECTOR_SIZE");
+  config.vector_store_options_.timeout = parse_milliseconds(
+      lookup_value(file_values, "QODELOC_QDRANT_TIMEOUT_MS", "30000"),
+      "QODELOC_QDRANT_TIMEOUT_MS");
+  config.vector_store_options_.api_key =
+      lookup_value(file_values, "QODELOC_QDRANT_API_KEY", "");
+
   config.api_options_.host = lookup_value(file_values, "QODELOC_API_HOST", "127.0.0.1");
   config.api_options_.port =
       parse_u16(lookup_value(file_values, "QODELOC_API_PORT", "3100"), "QODELOC_API_PORT");
@@ -321,6 +340,9 @@ Config Config::load(const std::filesystem::path& env_file) {
   if (config.indexer_options_.source_extensions.empty()) {
     config.indexer_options_.source_extensions = {".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx"};
   }
+
+  config.indexer_root_directory_ = resolve_path(
+      config.root_directory_, lookup_value(file_values, "QODELOC_INDEXER_ROOT_DIRECTORY", ""));
 
   config.storage_database_path_ = resolve_path(
       config.root_directory_, lookup_value(file_values, "QODELOC_STORAGE_DB_PATH", ""));
@@ -365,6 +387,10 @@ Retriever::Options Config::retriever_options() const {
   return retriever_options_;
 }
 
+VectorStore::Options Config::vector_store_options() const {
+  return vector_store_options_;
+}
+
 ApiServer::Options Config::api_options() const {
   return api_options_;
 }
@@ -385,6 +411,10 @@ Config::git_watcher_options(const std::filesystem::path& repository_root) const 
 
 std::filesystem::path Config::storage_database_path() const {
   return storage_database_path_;
+}
+
+const std::filesystem::path& Config::indexer_root_directory() const noexcept {
+  return indexer_root_directory_;
 }
 
 std::string Config::git_base_ref() const {

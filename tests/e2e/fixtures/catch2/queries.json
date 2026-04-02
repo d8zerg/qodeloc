@@ -1,0 +1,212 @@
+{
+  "repository": {
+    "name": "catch2",
+    "url": "https://github.com/catchorg/Catch2.git",
+    "ref": "v3.13.0",
+    "path": "tests/e2e/fixtures/repos/catch2"
+  },
+  "queries": [
+    {
+      "id": "search_session",
+      "tool": "search_codebase",
+      "query": "Where is Catch::Session defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::Session"]
+    },
+    {
+      "id": "search_config",
+      "tool": "search_codebase",
+      "query": "Where is Catch::Config defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::Config"]
+    },
+    {
+      "id": "search_assertion_result",
+      "tool": "search_codebase",
+      "query": "Where is Catch::AssertionResult defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::AssertionResult"]
+    },
+    {
+      "id": "search_reporter_base",
+      "tool": "search_codebase",
+      "query": "Where is Catch::ReporterBase implemented?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::ReporterBase"]
+    },
+    {
+      "id": "search_matcher_base",
+      "tool": "search_codebase",
+      "query": "Where are Catch2 matchers defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::MatcherBase"]
+    },
+    {
+      "id": "search_testspec",
+      "tool": "search_codebase",
+      "query": "Where is Catch::TestSpec defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::TestSpec"]
+    },
+    {
+      "id": "search_runcontext",
+      "tool": "search_codebase",
+      "query": "Where is Catch::RunContext defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::RunContext"]
+    },
+    {
+      "id": "search_scoped_message",
+      "tool": "search_codebase",
+      "query": "Where is Catch::ScopedMessage defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::ScopedMessage"]
+    },
+    {
+      "id": "search_tag_alias",
+      "tool": "search_codebase",
+      "query": "Where is Catch::TagAliasRegistry defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::TagAliasRegistry"]
+    },
+    {
+      "id": "search_rss",
+      "tool": "search_codebase",
+      "query": "Where is Catch::ReusableStringStream defined?",
+      "model": "balanced",
+      "expected_symbols": ["Catch::ReusableStringStream"]
+    },
+    {
+      "id": "explain_assertion_result",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::AssertionResult",
+      "model": "balanced",
+      "expected_symbols": ["Catch::AssertionResult"]
+    },
+    {
+      "id": "explain_config_data",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::ConfigData",
+      "model": "balanced",
+      "expected_symbols": ["Catch::ConfigData"]
+    },
+    {
+      "id": "explain_test_case_handle",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::TestCaseHandle",
+      "model": "balanced",
+      "expected_symbols": ["Catch::TestCaseHandle"]
+    },
+    {
+      "id": "explain_iresultcapture",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::IResultCapture",
+      "model": "balanced",
+      "expected_symbols": ["Catch::IResultCapture"]
+    },
+    {
+      "id": "explain_iconfig",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::IConfig",
+      "model": "balanced",
+      "expected_symbols": ["Catch::IConfig"]
+    },
+    {
+      "id": "explain_itransientexpression",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::ITransientExpression",
+      "model": "balanced",
+      "expected_symbols": ["Catch::ITransientExpression"]
+    },
+    {
+      "id": "explain_matcher_base",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::MatcherBase",
+      "model": "balanced",
+      "expected_symbols": ["Catch::MatcherBase"]
+    },
+    {
+      "id": "explain_approx",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::Approx",
+      "model": "balanced",
+      "expected_symbols": ["Catch::Approx"]
+    },
+    {
+      "id": "explain_stringmaker",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::StringMaker",
+      "model": "balanced",
+      "expected_symbols": ["Catch::StringMaker"]
+    },
+    {
+      "id": "explain_single_value_generator",
+      "tool": "explain_symbol",
+      "query": "Explain Catch::Generators::SingleValueGenerator",
+      "model": "balanced",
+      "expected_symbols": ["Catch::Generators::SingleValueGenerator"]
+    },
+    {
+      "id": "deps_runcontext",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::RunContext",
+      "expected_symbols": ["Catch::IConfig", "Catch::IResultCapture", "Catch::ITransientExpression"]
+    },
+    {
+      "id": "deps_config",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::Config",
+      "expected_symbols": ["Catch::ConfigData", "Catch::IConfig"]
+    },
+    {
+      "id": "deps_session",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::Session",
+      "expected_symbols": ["Catch::Config", "Catch::IConfig"]
+    },
+    {
+      "id": "deps_tag_alias_registry",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::TagAliasRegistry",
+      "expected_symbols": ["Catch::TagAlias", "Catch::SourceLineInfo"]
+    },
+    {
+      "id": "deps_matcher_base",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::MatcherBase",
+      "expected_symbols": ["Catch::Matchers"]
+    },
+    {
+      "id": "callers_iconfig",
+      "tool": "find_callers",
+      "query": "Who calls Catch::IConfig?",
+      "expected_symbols": ["Catch::RunContext", "Catch::Session"]
+    },
+    {
+      "id": "callers_assertion_result",
+      "tool": "find_callers",
+      "query": "Who calls Catch::AssertionResult?",
+      "expected_symbols": ["Catch::IResultCapture"]
+    },
+    {
+      "id": "callers_test_case_handle",
+      "tool": "find_callers",
+      "query": "Who calls Catch::TestCaseHandle?",
+      "expected_symbols": ["Catch::TestSpec"]
+    },
+    {
+      "id": "callers_tag_alias",
+      "tool": "find_callers",
+      "query": "Who calls Catch::TagAlias?",
+      "expected_symbols": ["Catch::TagAliasRegistry"]
+    },
+    {
+      "id": "module_src",
+      "tool": "get_module_overview",
+      "query": "Overview of the src module",
+      "module_name": "src",
+      "expected_symbols": ["Catch::Session", "Catch::Config"]
+    }
+  ]
+}
+

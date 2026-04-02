@@ -1,0 +1,25 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3333,
+    "path": "/mcp",
+    "messagesPath": "/messages",
+    "healthPath": "/healthz"
+  },
+  "auth": {
+    "apiKeys": [
+      "sk-qodeloc-dev"
+    ]
+  },
+  "core": {
+    "baseUrl": "http://127.0.0.1:3100",
+    "timeoutMs": 30000,
+    "modelHeader": "X-QodeLoc-Model"
+  },
+  "defaults": {
+    "defaultModel": "balanced",
+    "workspaceRoot": "",
+    "maxLocalFiles": 8,
+    "maxChangedFiles": 128
+  }
+}

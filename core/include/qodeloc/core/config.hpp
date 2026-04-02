@@ -11,6 +11,7 @@
 #include <qodeloc/core/llm.hpp>
 #include <qodeloc/core/prompt_builder.hpp>
 #include <qodeloc/core/retriever.hpp>
+#include <qodeloc/core/vector_store.hpp>
 #include <string>
 
 namespace qodeloc::core {
@@ -28,12 +29,14 @@ public:
   [[nodiscard]] PromptBuilder::Options prompt_builder_options() const;
   [[nodiscard]] HierarchicalIndex::Options hierarchy_options() const;
   [[nodiscard]] Retriever::Options retriever_options() const;
+  [[nodiscard]] VectorStore::Options vector_store_options() const;
   [[nodiscard]] ApiServer::Options api_options() const;
   [[nodiscard]] Indexer::Options
   indexer_options(const std::filesystem::path& root_directory = {}) const;
   [[nodiscard]] GitWatcher::Options
   git_watcher_options(const std::filesystem::path& repository_root = {}) const;
   [[nodiscard]] std::filesystem::path storage_database_path() const;
+  [[nodiscard]] const std::filesystem::path& indexer_root_directory() const noexcept;
   [[nodiscard]] std::string git_base_ref() const;
 
 private:
@@ -46,8 +49,10 @@ private:
   PromptBuilder::Options prompt_builder_options_;
   HierarchicalIndex::Options hierarchy_options_;
   Retriever::Options retriever_options_;
+  VectorStore::Options vector_store_options_;
   ApiServer::Options api_options_;
   Indexer::Options indexer_options_;
+  std::filesystem::path indexer_root_directory_;
   std::filesystem::path storage_database_path_;
   std::string git_base_ref_;
 };

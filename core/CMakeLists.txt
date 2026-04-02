@@ -67,6 +67,7 @@ qodeloc_core_add_module(parser "${QODELOC_CORE_SOURCE_DIR}/parser.cpp")
 qodeloc_core_add_module(retriever "${QODELOC_CORE_SOURCE_DIR}/retriever.cpp")
 qodeloc_core_add_module(storage
     "${QODELOC_CORE_SOURCE_DIR}/storage.cpp"
+    "${QODELOC_CORE_SOURCE_DIR}/vector_store.cpp"
 )
 
 target_link_libraries(qodeloc_api PUBLIC
@@ -116,7 +117,12 @@ target_link_libraries(qodeloc_retriever PUBLIC
     qodeloc::storage
 )
 
-target_link_libraries(qodeloc_storage PUBLIC qodeloc::config duckdb::duckdb)
+target_link_libraries(qodeloc_storage PUBLIC
+    qodeloc::config
+    duckdb::duckdb
+    Boost::system
+    nlohmann_json::nlohmann_json
+)
 
 add_executable(qodeloc-core
     src/main.cpp

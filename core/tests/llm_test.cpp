@@ -158,6 +158,8 @@ TEST(LlmClientTest, ReadyReportsConfiguredEndpoint) {
 }
 
 TEST(LlmClientTest, RetriesTransientErrorsAndParsesCompletion) {
+  auto options = Config::current().llm_options();
+  const auto expected_model = options.model;
   std::atomic<std::size_t> request_count{0};
   MockLlmServer server([&](const http::request<http::string_body>& request, tcp::socket& socket,
                            std::size_t request_index) {
@@ -166,7 +168,7 @@ TEST(LlmClientTest, RetriesTransientErrorsAndParsesCompletion) {
     EXPECT_EQ(request[http::field::authorization], "Bearer sk-qodeloc-dev");
 
     const auto payload = nlohmann::json::parse(request.body());
-    EXPECT_EQ(payload.value("model", ""), "qodeloc-local");
+    EXPECT_EQ(payload.value("model", ""), expected_model);
     EXPECT_FALSE(payload.value("stream", true));
     ASSERT_TRUE(payload.contains("messages"));
     EXPECT_EQ(payload["messages"].size(), 2U);
@@ -187,7 +189,6 @@ TEST(LlmClientTest, RetriesTransientErrorsAndParsesCompletion) {
     write_json_response(socket, 200, response);
   });
 
-  auto options = Config::current().llm_options();
   options.port = server.port();
   options.timeout = std::chrono::seconds{5};
   options.max_retries = 1;

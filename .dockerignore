@@ -1,0 +1,9 @@
+.git
+core/build/
+mcp-adapter/node_modules/
+mcp-adapter/dist/
+models/downloads/
+models/cache/
+testdata/repos/
+tests/e2e/results/
+**/.DS_Store

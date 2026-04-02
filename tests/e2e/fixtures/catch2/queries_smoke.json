@@ -1,0 +1,77 @@
+{
+  "repository": {
+    "name": "catch2",
+    "url": "https://github.com/catchorg/Catch2.git",
+    "ref": "v3.13.0",
+    "path": "tests/e2e/fixtures/repos/catch2"
+  },
+  "queries": [
+    {
+      "id": "search_tsp",
+      "tool": "search_codebase",
+      "query": "tsp",
+      "model": "balanced",
+      "expected_symbols": ["tsp"]
+    },
+    {
+      "id": "search_assertion_listener",
+      "tool": "search_codebase",
+      "query": "AssertionSlowPathListener",
+      "model": "balanced",
+      "expected_symbols": ["(anonymous)::AssertionSlowPathListener::AssertionSlowPathListener"]
+    },
+    {
+      "id": "search_text_flow_column_plus",
+      "tool": "search_codebase",
+      "query": "Catch::TextFlow::Column::operator+",
+      "model": "balanced",
+      "expected_symbols": ["Catch::TextFlow::Column::operator+"]
+    },
+    {
+      "id": "get_symbol_tsp",
+      "tool": "get_symbol",
+      "query": "tsp",
+      "model": "balanced",
+      "expected_symbols": ["tsp"]
+    },
+    {
+      "id": "get_symbol_assertion_listener",
+      "tool": "get_symbol",
+      "query": "(anonymous)::AssertionSlowPathListener",
+      "model": "balanced",
+      "expected_symbols": ["(anonymous)::AssertionSlowPathListener::AssertionSlowPathListener"]
+    },
+    {
+      "id": "get_symbol_text_flow_column_plus",
+      "tool": "get_symbol",
+      "query": "Catch::TextFlow::Column::operator+",
+      "model": "balanced",
+      "expected_symbols": ["Catch::TextFlow::Column::operator+"]
+    },
+    {
+      "id": "deps_session",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::Session::Session",
+      "expected_symbols": ["Catch::Session::Session"]
+    },
+    {
+      "id": "deps_print_tuple",
+      "tool": "get_deps",
+      "query": "Dependencies of Catch::Detail::PrintTuple",
+      "expected_symbols": ["Catch::Detail::PrintTuple"]
+    },
+    {
+      "id": "callers_text_flow",
+      "tool": "find_callers",
+      "query": "Who calls Catch::TextFlow::operator<<?",
+      "expected_symbols": ["Catch::TextFlow::operator<<"]
+    },
+    {
+      "id": "module_catch2",
+      "tool": "get_module_overview",
+      "query": "Overview of the catch2 module",
+      "module_name": "catch2",
+      "expected_symbols": ["catch2"]
+    }
+  ]
+}

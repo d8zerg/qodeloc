@@ -17,6 +17,30 @@ services:
       retries: 12
       start_period: 20s
 
+  jina-embedder:
+    build:
+      context: ..
+      dockerfile: infra/embeddings/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      QODELOC_EMBEDDER_HOST: 0.0.0.0
+      QODELOC_EMBEDDER_PORT: 8081
+      QODELOC_EMBEDDER_MODEL_DIR: /models/jina-code
+      QODELOC_EMBEDDER_MODEL: jina-code
+      QODELOC_EMBEDDER_DEVICE: ${QODELOC_EMBEDDER_DEVICE:-auto}
+      QODELOC_EMBEDDER_MAX_LENGTH: ${QODELOC_EMBEDDER_MAX_LENGTH:-512}
+    volumes:
+      - ../models/downloads/jina-code:/models/jina-code:ro
+    restart: unless-stopped
+    healthcheck:
+      test: >-
+        python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz').read()"
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
   llama-cpp:
     image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
@@ -33,6 +57,10 @@ services:
       - "qodeloc-llama31-8b"
       - "--ctx-size"
       - "4096"
+      - "--threads"
+      - "${QODELOC_LLAMA_THREADS:-8}"
+      - "--threads-batch"
+      - "${QODELOC_LLAMA_THREADS_BATCH:-8}"
       - "--no-repack"
       - "--model"
       - "/models/llama31-8b/${QODELOC_LLAMA_MODEL_FILE:-Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf}"
@@ -73,5 +101,114 @@ services:
       retries: 12
       start_period: 45s
 
+  core:
+    build:
+      context: ..
+      dockerfile: core/Dockerfile
+    ports:
+      - "${QODELOC_API_PORT:-3100}:3100"
+    environment:
+      QODELOC_EMBEDDER_HOST: jina-embedder
+      QODELOC_EMBEDDER_PORT: 8081
+      QODELOC_EMBEDDER_API_PATH: /v1/embeddings
+      QODELOC_EMBEDDER_MODEL: jina-code
+      QODELOC_EMBEDDER_BATCH_SIZE: ${QODELOC_EMBEDDER_BATCH_SIZE:-8}
+      QODELOC_EMBEDDER_TIMEOUT_MS: ${QODELOC_EMBEDDER_TIMEOUT_MS:-30000}
+      QODELOC_LLM_HOST: litellm
+      QODELOC_LLM_PORT: 4000
+      QODELOC_LLM_API_PATH: /v1/chat/completions
+      QODELOC_LLM_MODEL: ${QODELOC_LLM_MODEL:-balanced}
+      QODELOC_LLM_API_KEY: ${QODELOC_LITELLM_MASTER_KEY:-sk-qodeloc-dev}
+      QODELOC_LLM_MAX_TOKENS: ${QODELOC_LLM_MAX_TOKENS:-96}
+      QODELOC_LLM_TIMEOUT_MS: ${QODELOC_LLM_TIMEOUT_MS:-30000}
+      QODELOC_LLM_MAX_RETRIES: ${QODELOC_LLM_MAX_RETRIES:-3}
+      QODELOC_LLM_INITIAL_BACKOFF_MS: ${QODELOC_LLM_INITIAL_BACKOFF_MS:-150}
+      QODELOC_LLM_MAX_BACKOFF_MS: ${QODELOC_LLM_MAX_BACKOFF_MS:-2000}
+      QODELOC_PROMPTS_DIR: /workspace/qodeloc/prompts
+      QODELOC_PROMPT_CONTEXT_TOKEN_LIMIT: ${QODELOC_PROMPT_CONTEXT_TOKEN_LIMIT:-3072}
+      QODELOC_PROMPT_MODULE_LIMIT: ${QODELOC_PROMPT_MODULE_LIMIT:-4}
+      QODELOC_PROMPT_SYMBOL_LIMIT: ${QODELOC_PROMPT_SYMBOL_LIMIT:-8}
+      QODELOC_PROMPT_LOCAL_FILE_LIMIT: ${QODELOC_PROMPT_LOCAL_FILE_LIMIT:-3}
+      QODELOC_PROMPT_MODULE_TOKEN_LIMIT: ${QODELOC_PROMPT_MODULE_TOKEN_LIMIT:-256}
+      QODELOC_PROMPT_SYMBOL_TOKEN_LIMIT: ${QODELOC_PROMPT_SYMBOL_TOKEN_LIMIT:-1024}
+      QODELOC_PROMPT_LOCAL_FILE_TOKEN_LIMIT: ${QODELOC_PROMPT_LOCAL_FILE_TOKEN_LIMIT:-768}
+      QODELOC_HIERARCHY_MODULE_TOP_K: ${QODELOC_HIERARCHY_MODULE_TOP_K:-3}
+      QODELOC_HIERARCHY_SYMBOL_TOP_K: ${QODELOC_HIERARCHY_SYMBOL_TOP_K:-5}
+      QODELOC_HIERARCHY_PUBLIC_SYMBOL_LIMIT: ${QODELOC_HIERARCHY_PUBLIC_SYMBOL_LIMIT:-12}
+      QODELOC_RETRIEVER_RELATED_SYMBOL_LIMIT: ${QODELOC_RETRIEVER_RELATED_SYMBOL_LIMIT:-4}
+      QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT: ${QODELOC_RETRIEVER_CONTEXT_TOKEN_LIMIT:-256}
+      QODELOC_QDRANT_ENABLED: "true"
+      QODELOC_QDRANT_HOST: qdrant
+      QODELOC_QDRANT_PORT: 6333
+      QODELOC_QDRANT_COLLECTION: qodeloc-symbols
+      QODELOC_QDRANT_VECTOR_SIZE: 768
+      QODELOC_QDRANT_TIMEOUT_MS: 30000
+      QODELOC_API_HOST: 0.0.0.0
+      QODELOC_API_PORT: 3100
+      QODELOC_API_MAX_BODY_BYTES: ${QODELOC_API_MAX_BODY_BYTES:-1048576}
+      QODELOC_API_TIMEOUT_MS: ${QODELOC_API_TIMEOUT_MS:-30000}
+      QODELOC_INDEXER_ROOT_DIRECTORY: /workspace/qodeloc
+      QODELOC_INDEXER_EMBEDDING_BATCH_SIZE: ${QODELOC_INDEXER_EMBEDDING_BATCH_SIZE:-8}
+      QODELOC_INDEXER_RECURSIVE: ${QODELOC_INDEXER_RECURSIVE:-true}
+      QODELOC_INDEXER_SOURCE_EXTENSIONS: ${QODELOC_INDEXER_SOURCE_EXTENSIONS:-.cpp,.cxx,.cc,.h,.hpp,.hxx}
+      QODELOC_STORAGE_DB_PATH: /var/lib/qodeloc/qodeloc.duckdb
+      QODELOC_GIT_BASE_REF: ${QODELOC_GIT_BASE_REF:-HEAD~1}
+    volumes:
+      - ../:/workspace/qodeloc:ro
+      - qodeloc_core_storage:/var/lib/qodeloc
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      jina-embedder:
+        condition: service_healthy
+      llama-cpp:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: >-
+        python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3100/status').read()"
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 3m
+
+  mcp-adapter:
+    build:
+      context: ..
+      dockerfile: mcp-adapter/Dockerfile
+    ports:
+      - "${QODELOC_MCP_PORT:-3333}:3333"
+    environment:
+      QODELOC_MCP_HOST: 0.0.0.0
+      QODELOC_MCP_PORT: 3333
+      QODELOC_MCP_PATH: /mcp
+      QODELOC_MCP_MESSAGES_PATH: /messages
+      QODELOC_MCP_HEALTH_PATH: /healthz
+      QODELOC_MCP_API_KEYS: ${QODELOC_MCP_API_KEYS:-sk-qodeloc-dev}
+      QODELOC_CORE_API_URL: http://core:3100
+      QODELOC_CORE_API_TIMEOUT_MS: ${QODELOC_CORE_API_TIMEOUT_MS:-30000}
+      QODELOC_CORE_MODEL_HEADER: ${QODELOC_CORE_MODEL_HEADER:-X-QodeLoc-Model}
+      QODELOC_MCP_DEFAULT_MODEL: ${QODELOC_MCP_DEFAULT_MODEL:-balanced}
+      QODELOC_MCP_WORKSPACE_ROOT: /workspace/qodeloc
+      QODELOC_MCP_MAX_LOCAL_FILES: ${QODELOC_MCP_MAX_LOCAL_FILES:-8}
+      QODELOC_MCP_MAX_CHANGED_FILES: ${QODELOC_MCP_MAX_CHANGED_FILES:-128}
+      QODELOC_MCP_CONFIG: /workspace/qodeloc/mcp-adapter/config.json
+    volumes:
+      - ../:/workspace/qodeloc:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: >-
+        node -e "fetch('http://127.0.0.1:3333/healthz').then((response) => { if (!response.ok) { process.exit(1); } }).catch(() => process.exit(1));"
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
 volumes:
   qdrant_storage:
+  qodeloc_core_storage:

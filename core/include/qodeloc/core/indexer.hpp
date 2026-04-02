@@ -8,6 +8,7 @@
 #include <qodeloc/core/embedder.hpp>
 #include <qodeloc/core/module.hpp>
 #include <qodeloc/core/storage.hpp>
+#include <qodeloc/core/vector_store.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -95,6 +96,7 @@ private:
   Options options_;
   Storage storage_;
   Embedder embedder_;
+  VectorStore vector_store_;
   EmbeddingBatchFn embedding_batch_;
   std::vector<IndexedSymbol> symbols_;
   Stats last_stats_;

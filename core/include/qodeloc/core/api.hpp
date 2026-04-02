@@ -28,6 +28,9 @@ public:
     bool running{};
     std::string host;
     std::uint16_t port{};
+    std::string bootstrap_state;
+    std::string bootstrap_message;
+    bool bootstrap_complete{};
     std::filesystem::path root_directory;
     std::size_t symbol_count{};
     std::size_t module_count{};
@@ -57,6 +60,7 @@ public:
   void attach_prompt_builder(PromptBuilder& prompt_builder) noexcept;
   void attach_llm_client(LlmClient& llm_client) noexcept;
   void attach_module_embedding_batch(ModuleEmbeddingBatchFn module_embedding_batch);
+  void set_bootstrap_state(std::string state, std::string message = {});
 
   void start();
   void stop() noexcept;

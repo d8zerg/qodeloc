@@ -121,7 +121,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
   /status:
     get:
-      summary: Return service and indexing status
+      summary: Return service, bootstrap, and indexing status
       operationId: getStatus
       responses:
         "200":
@@ -358,6 +358,9 @@ components:
         - running
         - host
         - port
+        - bootstrap_state
+        - bootstrap_message
+        - bootstrap_complete
         - root_directory
         - symbol_count
         - module_count
@@ -374,6 +377,12 @@ components:
           type: string
         port:
           type: integer
+        bootstrap_state:
+          type: string
+        bootstrap_message:
+          type: string
+        bootstrap_complete:
+          type: boolean
         root_directory:
           type: string
         symbol_count:

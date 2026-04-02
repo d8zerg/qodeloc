@@ -1,74 +1,115 @@
-# QodeLoc AI-assistant
+# QodeLoc AI Assistant
 
-QodeLoc is an air-gapped AI code assistant for teams that cannot send source code to the cloud. It runs entirely on your own infrastructure and provides semantic search, dependency navigation, and natural-language explanations of large C++ codebases - all from within your IDE.
-Developers connect through Continue.dev in VSCode or CLion. The system indexes the repository using AST-level parsing via tree-sitter, stores symbol vectors in Qdrant, and maintains a dependency graph in DuckDB. Queries are answered by a locally running language model through llama.cpp, routed through LiteLLM. No code, query, or response leaves the network perimeter.
+QodeLoc is an air-gapped AI code assistant for C++ codebases. It stays inside your network perimeter and gives developers semantic search, dependency navigation, local-file-aware explanations, and MCP-based IDE integration.
 
-## Bootstrap
+The full stack now runs in Docker:
 
-1. Check `ENVIRONMENT.md` for the verified toolchain.
-2. Review `.env` for the shared local defaults. `core` default constructors, `make`, and Docker Compose all read the same `QODELOC_*` values.
-3. Run `make up` to start the local dev stack. Docker will pull the official `ghcr.io/ggml-org/llama.cpp:server` image and use the pre-downloaded `models/downloads/llama31-8b/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` file. If the file is missing, run `make install-models-llama31-8b` first.
-4. Run `make status` to inspect service health.
+- `qdrant` stores symbol vectors
+- `jina-embedder` serves the locally downloaded embedding model
+- `llama-cpp` serves the locally downloaded generation model
+- `litellm` routes model calls and handles fallback
+- `core` indexes code, answers HTTP API requests, and manages the dependency graph
+- `mcp-adapter` exposes the MCP SSE interface used by Continue.dev and other MCP clients
+
+## Quick Start
+
+1. Download the two local models once:
+   - `make install-models-jina-code`
+   - `make install-models-llama31-8b`
+2. Start the full stack:
+   - `make up`
+3. Check service health:
+   - `make status`
+4. Stream logs if needed:
+   - `make logs`
+
+`make up` builds the local Docker images for `core`, `mcp-adapter`, and `jina-embedder`, then starts the complete runtime stack.
+
+## What Runs in Docker
+
+| Service | Purpose | Host port |
+| --- | --- | --- |
+| `qdrant` | Vector store for symbol embeddings | `6333` / `6334` |
+| `jina-embedder` | OpenAI-compatible embeddings API | `8081` |
+| `llama-cpp` | Local generation backend | `8080` |
+| `litellm` | Router and fallback layer | `4000` |
+| `core` | C++ API, indexing, retrieval, and graph storage | `3100` |
+| `mcp-adapter` | MCP SSE server for IDE clients | `3333` |
 
 ## Model Commands
 
-The model installer resolves the Hugging Face CLI from your local `pipx` install. If `hf` is not on `PATH`, it will fall back to `~/.local/bin/hf` automatically.
+The model installer resolves the Hugging Face CLI from your local `pipx` install. If `hf` is not on `PATH`, it falls back to `~/.local/bin/hf`.
 
 Use these targets to install one model at a time:
 
-- `make install-models-jina-code` - download the embedding model used for code search
-- `make install-models-llama31-8b` - download the lightweight 8B generation model used by `make up`
-- `make install-models-codestral2` - download the Codestral GGUF slot
-- `make install-models-qwen3-14b` - download the 14B Qwen GGUF model
-- `make install-models-qwen3-30b-a3b` - download the 30B-A3B Qwen GGUF model
-- `make install-models-all` - download the full catalog
+- `make install-models-jina-code` - embedding model for code search
+- `make install-models-llama31-8b` - lightweight generation model used by the default Docker stack
+- `make install-models-codestral2` - Codestral GGUF slot
+- `make install-models-qwen3-14b` - 14B Qwen generation model
+- `make install-models-qwen3-30b-a3b` - 30B-A3B Qwen generation model
+- `make install-models-all` - install the full catalog
 
-The CLI shows download progress while each model is fetched. Artifacts land under `models/downloads/<short-name>/`, and the local cache stays in ignored paths under `models/cache/`. The default dev stack reuses the downloaded `llama31-8b` artifact directly and does not fetch it again inside Docker.
-
-If a repo is gated, authenticate first with `hf auth login`.
+Downloaded artifacts stay under `models/downloads/`, and the Hugging Face cache stays under `models/cache/`.
 
 ## Core Engine
 
-`core/` now has a working Conan 2 + CMake + Ninja bootstrap. The default binary starts the HTTP API server; `--smoke` preserves the lightweight module-graph check.
-`core` modules read their runtime defaults from `Config`, which loads `.env` from the repository root or the current process environment. The API server listens on the configured `QODELOC_API_*` values and exposes `/search`, `/explain`, `/deps`, `/callers`, `/module`, `/status`, and `/reindex`.
+The `core/` project is a Conan 2 + CMake + Ninja C++23 application. It starts the HTTP API immediately, then boots the initial corpus in the background so `/status` can report `initializing`, `indexing`, or `ready`.
 
-Planned workflow:
+Core uses:
 
-- install deps: `conan install core -of core/build/debug -s build_type=Debug -s compiler.cppstd=23 -g CMakeDeps -g CMakeToolchain --build=missing`
-- configure: `cd core && cmake --preset debug`
-- build: `cd core && cmake --build --preset debug`
-- run API server: `./core/build/debug/qodeloc-core`
-- run smoke check: `./core/build/debug/qodeloc-core --smoke`
+- tree-sitter for AST parsing
+- DuckDB for the structural graph
+- Qdrant for vector search
+- `jina-code` for embeddings
+- `llama31-8b` through LiteLLM for generation
 
-`make build` wraps the same flow from the repository root.
+Useful local commands:
 
-Core-specific make targets are available alongside that scaffold:
-
-- `make build` - configure and build `core/` once `core/CMakeLists.txt` exists
+- `make build` - configure and build the C++ core on the host
 - `make test` - run the core test suite through CTest
-- `make release` - build the core Docker image from `core/Dockerfile`
-- `make up-core` - start the core Docker Compose stack when it is added
-- `make down-core` - stop the core Docker Compose stack
+- `make fmt` - format C++ sources with clang-format
+- `make lint` - run clang-tidy over the non-test C++ sources
+- `make release` - build the core Docker image
+
+## MCP Adapter
+
+The `mcp-adapter/` project is a TypeScript MCP SSE server that proxies Continue.dev tools to the Core HTTP API.
+
+Useful local commands:
+
+- `make mcp-install`
+- `make mcp-build`
+- `make mcp-test`
+- `make mcp-lint`
+- `make mcp-dev`
+- `make mcp-release`
 
 ## Repository Layout
 
 - `core/` - C++23 core engine
 - `mcp-adapter/` - TypeScript MCP server
-- `scripts/` - index, deploy, and model helper scripts
-- `models/` - model configuration and metadata
-- `infra/` - Docker Compose stack and service configs
+- `infra/` - Docker Compose stack and container build files
+- `models/` - model catalog, install scripts, and notes
 - `prompts/` - YAML prompt templates
-- `docs/` - architecture and operational docs
+- `scripts/` - helper scripts for models and fixtures
+- `docs/` - architecture, deployment, and API documentation
 - `tests/` - integration and end-to-end tests
-- `testdata/` - fixed parser fixtures
+- `testdata/` - fixed parser and graph fixtures
 
-## Dev Commands
+## Documentation
 
-- `make up` - start Qdrant, LiteLLM, and the official prebuilt llama.cpp server image using the local `llama31-8b` model file
-- `make logs` - stream container logs
-- `make down` - stop the stack
-- `make reset` - stop the stack and remove volumes
-- `make status` - print compose health and container state
-- `make fmt` - run clang-format over C++ sources
-- `make lint` - run clang-tidy over C++ sources when compile commands are available
-- `make download-testdata-repo` - clone or refresh the default public fixture repo (`fmtlib/fmt`) under `testdata/repos/fmt/`
+Start with:
+
+- `docs/docker.md`
+- `docs/configuration.md`
+- `docs/api.md`
+- `docs/api-internal.md`
+- `docs/mcp-tools.md`
+- `docs/performance.md`
+- `docs/QodeLoc_DevPlan.md`
+
+## Development Notes
+
+- `make up-core` and `make down-core` are aliases for the same Docker deployment.
+- `make reset` stops the stack and removes volumes.
+- `make download-testdata-repo` fetches the default public fixture repo used by the indexer tests.

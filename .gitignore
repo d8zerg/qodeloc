@@ -49,6 +49,10 @@ node_modules/
 .yarn/
 .yarn-cache/
 *.tsbuildinfo
+mcp-adapter/node_modules/
+mcp-adapter/dist/
+tests/e2e/fixtures/repos/
+tests/e2e/results/
 
 # Python
 __pycache__/

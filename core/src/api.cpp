@@ -7,6 +7,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <qodeloc/core/api.hpp>
@@ -163,6 +164,16 @@ struct HttpResponse {
   }
 
   return local_files;
+}
+
+[[nodiscard]] std::string request_model_override(const http::request<http::string_body>& request,
+                                                 const json& body) {
+  const auto header = trim(std::string_view{request["X-QodeLoc-Model"]});
+  if (!header.empty()) {
+    return header;
+  }
+
+  return trim(body.value("model", std::string{}));
 }
 
 [[nodiscard]] std::string make_symbol_context_text(const Indexer::IndexedSymbol& symbol,
@@ -340,6 +351,12 @@ find_module_record(const Retriever& retriever, std::string_view module_name) {
 } // namespace
 
 struct ApiServer::Impl {
+  struct BootstrapStatus {
+    std::string state{"initializing"};
+    std::string message{"Initializing initial corpus"};
+    bool complete{false};
+  };
+
   explicit Impl(Options options_in) : options(std::move(options_in)) {
     if (options.host.empty()) {
       throw std::invalid_argument("ApiServer host must not be empty");
@@ -362,6 +379,24 @@ struct ApiServer::Impl {
     return running.load(std::memory_order_relaxed);
   }
 
+  void set_bootstrap_state(std::string state, std::string message) {
+    const bool complete = state == "ready";
+    std::lock_guard<std::mutex> lock(bootstrap_mutex);
+    bootstrap_state.state = std::move(state);
+    bootstrap_state.message = std::move(message);
+    bootstrap_state.complete = complete;
+  }
+
+  [[nodiscard]] BootstrapStatus bootstrap_snapshot() const {
+    std::lock_guard<std::mutex> lock(bootstrap_mutex);
+    return bootstrap_state;
+  }
+
+  [[nodiscard]] bool corpus_ready() const noexcept {
+    std::lock_guard<std::mutex> lock(bootstrap_mutex);
+    return bootstrap_state.complete;
+  }
+
   void wire_storage() noexcept {
     if (indexer != nullptr && retriever != nullptr) {
       retriever->attach_storage(indexer->storage());
@@ -369,19 +404,26 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] Status snapshot() const {
+    const auto bootstrap = bootstrap_snapshot();
     Status status;
     status.running = running_state();
     status.host = options.host;
     status.port = bound_port != 0 ? bound_port : options.port;
-    if (indexer != nullptr) {
+    status.bootstrap_state = bootstrap.state;
+    status.bootstrap_message = bootstrap.message;
+    status.bootstrap_complete = bootstrap.complete;
+    if (bootstrap.complete && indexer != nullptr) {
       status.root_directory = indexer->options().root_directory;
-      status.symbol_count = indexer->ready() ? indexer->storage().graph().symbol_count() : 0U;
+      status.symbol_count = indexer->storage().graph().symbol_count();
       status.indexed_files = indexer->last_stats().files_indexed;
       status.last_stats = indexer->last_stats();
       status.last_indexed_at = indexer->last_indexed_at();
       status.last_operation = std::string(indexer->last_operation());
+    } else if (indexer != nullptr) {
+      status.root_directory = indexer->options().root_directory;
+      status.last_operation = bootstrap.state;
     }
-    if (retriever != nullptr) {
+    if (bootstrap.complete && retriever != nullptr) {
       status.module_count = retriever->hierarchy().modules().size();
       status.retriever_ready = retriever->ready();
     }
@@ -390,9 +432,11 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] HttpResponse handle_search(const json& body) const {
-    if (retriever == nullptr || !retriever->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Retriever is not ready; index the corpus first");
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || retriever == nullptr || !retriever->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
 
     const auto query = trim(body.value("query", std::string{}));
@@ -414,10 +458,13 @@ struct ApiServer::Impl {
     return HttpResponse{http::status::ok, std::move(response)};
   }
 
-  [[nodiscard]] HttpResponse handle_explain(const json& body) const {
-    if (indexer == nullptr || !indexer->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Indexer is not ready; run an initial index first");
+  [[nodiscard]] HttpResponse handle_explain(const json& body,
+                                            std::string_view model_override = {}) const {
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || indexer == nullptr || !indexer->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
     if (prompt_builder == nullptr) {
       return json_error(http::status::service_unavailable, "Prompt builder is not attached");
@@ -448,15 +495,23 @@ struct ApiServer::Impl {
     retrieval.symbols.push_back(make_symbol_context(*symbol, indexer->storage()));
 
     const auto local_files = parse_local_files(body);
+    const auto model = !trim(body.value("model", std::string{})).empty()
+                           ? trim(body.value("model", std::string{}))
+                           : trim(std::string(model_override));
     const auto prompt =
         prompt_builder->build(PromptBuilder::RequestType::Explain, name, retrieval, local_files);
 
     LlmClient::ChatRequest request;
     request.messages = prompt.messages;
+    request.model = model;
+    if (llm_client->options().max_tokens > 0) {
+      request.max_tokens = llm_client->options().max_tokens;
+    }
     const auto completion = llm_client->complete(request);
 
     json response;
     response["name"] = name;
+    response["model"] = model.empty() ? llm_client->options().model : model;
     response["symbol"] = indexed_symbol_json(*symbol);
     response["retrieval"]["modules"] = json::array();
     for (const auto& module_hit : retrieval.modules) {
@@ -472,9 +527,11 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] HttpResponse handle_deps(const json& body) const {
-    if (indexer == nullptr || !indexer->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Indexer is not ready; run an initial index first");
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || indexer == nullptr || !indexer->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
 
     const auto name = trim(body.value("name", body.value("symbol_name", std::string{})));
@@ -508,9 +565,11 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] HttpResponse handle_callers(const json& body) const {
-    if (indexer == nullptr || !indexer->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Indexer is not ready; run an initial index first");
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || indexer == nullptr || !indexer->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
 
     const auto name = trim(body.value("name", body.value("symbol_name", std::string{})));
@@ -534,9 +593,11 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] HttpResponse handle_module(const json& body) const {
-    if (indexer == nullptr || !indexer->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Indexer is not ready; run an initial index first");
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || indexer == nullptr || !indexer->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
 
     const auto module_name = trim(body.value("module_name", body.value("name", std::string{})));
@@ -586,6 +647,9 @@ struct ApiServer::Impl {
     response["running"] = current.running;
     response["host"] = current.host;
     response["port"] = current.port;
+    response["bootstrap_state"] = current.bootstrap_state;
+    response["bootstrap_message"] = current.bootstrap_message;
+    response["bootstrap_complete"] = current.bootstrap_complete;
     response["root_directory"] = current.root_directory.generic_string();
     response["symbol_count"] = current.symbol_count;
     response["module_count"] = current.module_count;
@@ -604,9 +668,11 @@ struct ApiServer::Impl {
   }
 
   [[nodiscard]] HttpResponse handle_reindex(const json& body) {
-    if (indexer == nullptr || !indexer->ready()) {
-      return json_error(http::status::service_unavailable,
-                        "Indexer is not ready; run an initial index first");
+    const auto bootstrap = bootstrap_snapshot();
+    if (!bootstrap.complete || indexer == nullptr || !indexer->ready()) {
+      return json_error(http::status::service_unavailable, bootstrap.message.empty()
+                                                               ? "Initial corpus is still indexing"
+                                                               : bootstrap.message);
     }
 
     Indexer::Result result;
@@ -630,14 +696,14 @@ struct ApiServer::Impl {
     json warnings = json::array();
     if (retriever != nullptr) {
       try {
-        auto rebuilt = *retriever;
-        rebuilt.attach_storage(indexer->storage());
+        retriever->clear_corpus();
+        retriever->clear_storage();
+        retriever->attach_storage(indexer->storage());
         if (module_embedding_batch) {
-          rebuilt.build(indexer->symbols(), module_embedding_batch);
+          retriever->build(indexer->symbols(), module_embedding_batch);
         } else {
-          rebuilt.build(indexer->symbols());
+          retriever->build(indexer->symbols());
         }
-        *retriever = std::move(rebuilt);
       } catch (const std::exception& error) {
         warnings.push_back(std::string("Retriever rebuild failed: ") + error.what());
         spdlog::warn("API reindex retriever refresh failed: {}", error.what());
@@ -671,6 +737,9 @@ struct ApiServer::Impl {
     response["running"] = snapshot.running;
     response["host"] = snapshot.host;
     response["port"] = snapshot.port;
+    response["bootstrap_state"] = snapshot.bootstrap_state;
+    response["bootstrap_message"] = snapshot.bootstrap_message;
+    response["bootstrap_complete"] = snapshot.bootstrap_complete;
     response["root_directory"] = snapshot.root_directory.generic_string();
     response["symbol_count"] = snapshot.symbol_count;
     response["module_count"] = snapshot.module_count;
@@ -709,7 +778,7 @@ struct ApiServer::Impl {
         return handle_search(body);
       }
       if (path == "/explain") {
-        return handle_explain(body);
+        return handle_explain(body, request_model_override(request, body));
       }
       if (path == "/deps") {
         return handle_deps(body);
@@ -801,6 +870,8 @@ struct ApiServer::Impl {
   std::thread worker;
   std::atomic<bool> running{false};
   std::uint16_t bound_port{};
+  mutable std::mutex bootstrap_mutex;
+  BootstrapStatus bootstrap_state;
 };
 
 ApiServer::ApiServer() : ApiServer(Config::current().api_options()) {}
@@ -861,6 +932,10 @@ void ApiServer::attach_llm_client(LlmClient& llm_client) noexcept {
 
 void ApiServer::attach_module_embedding_batch(ModuleEmbeddingBatchFn module_embedding_batch) {
   impl_->module_embedding_batch = std::move(module_embedding_batch);
+}
+
+void ApiServer::set_bootstrap_state(std::string state, std::string message) {
+  impl_->set_bootstrap_state(std::move(state), std::move(message));
 }
 
 void ApiServer::start() {

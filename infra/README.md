@@ -1,10 +1,29 @@
 # Infrastructure
 
-This directory contains the local development stack and service configuration files.
+This directory contains the Docker deployment for the full QodeLoc stack.
 
-- `docker-compose.yml` starts Qdrant, LiteLLM, and the official prebuilt `ghcr.io/ggml-org/llama.cpp:server` image, which is mounted against the locally downloaded `models/downloads/llama31-8b` GGUF file
-- `../.env` provides the shared `QODELOC_*` ports, model paths, and local API keys for the dev stack
-- `litellm/config.yaml` configures the proxy model routing
-- persistent Docker volumes keep local state between runs
+## Services
 
-If the `llama31-8b` artifact is missing, run `make install-models-llama31-8b` before `make up`.
+- `docker-compose.yml` starts the complete runtime stack:
+  - `qdrant`
+  - `jina-embedder`
+  - `llama-cpp`
+  - `litellm`
+  - `core`
+  - `mcp-adapter`
+- `litellm/config.yaml` configures model routing and fallback.
+- `embeddings/server.py` serves the local embedding endpoint for the downloaded `jina-code` model.
+
+## Docker Workflow
+
+- `make up` - build and start the full stack
+- `make logs` - tail container logs
+- `make status` - print container and health status
+- `make down` - stop the stack
+- `make reset` - stop the stack and remove persisted volumes
+
+## Notes
+
+- The runtime stack is designed around the locally downloaded `jina-code` and `llama31-8b` artifacts.
+- `core` and `mcp-adapter` are built from the repository source and run against the mounted workspace.
+- `qdrant` keeps the vector index persistent between runs.
