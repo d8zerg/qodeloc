@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: QodeLoc HTTP API
-  version: 0.2.3-dev
+  version: 0.5.4-dev
   description: HTTP API for the QodeLoc core engine.
 servers:
   - url: http://127.0.0.1:3100
