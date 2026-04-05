@@ -1,6 +1,6 @@
 # QodeLoc AI Assistant
 
-QodeLoc is an air-gapped AI code assistant for C++ codebases. It stays inside your network perimeter and gives developers semantic search, dependency navigation, local-file-aware explanations, and MCP-based IDE integration.
+QodeLoc is an air-gapped AI code assistant for codebases. It stays inside your network perimeter and gives developers semantic search, dependency navigation, local-file-aware explanations, and MCP-based IDE integration.
 
 The full stack now runs in Docker:
 
