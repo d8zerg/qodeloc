@@ -6,7 +6,7 @@ This directory collects the operational and architectural documentation for Qode
 
 - `docker.md` - full Docker deployment, services, ports, volumes, and compose workflow.
 - `configuration.md` - environment variables and runtime knobs for the full stack.
-- `api.md` - OpenAPI 3.1 spec for the Core HTTP API.
+- `api.yaml` - OpenAPI 3.1 spec for the Core HTTP API.
 - `api-internal.md` - internal C++ module contracts and implementation notes.
 - `mcp-tools.md` - MCP tools and model-routing conventions.
 - `performance.md` - baseline latency and retrieval measurements.

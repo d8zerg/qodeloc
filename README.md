@@ -102,7 +102,7 @@ Start with:
 
 - `docs/docker.md`
 - `docs/configuration.md`
-- `docs/api.md`
+- `docs/api.yaml`
 - `docs/api-internal.md`
 - `docs/mcp-tools.md`
 - `docs/performance.md`
