@@ -106,7 +106,6 @@ Start with:
 - `docs/api-internal.md`
 - `docs/mcp-tools.md`
 - `docs/performance.md`
-- `docs/QodeLoc_DevPlan.md`
 
 ## Development Notes
 
